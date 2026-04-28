@@ -1,0 +1,41 @@
+name: flutter_demo
+description: "Lumina Crypto - a mock crypto trading & portfolio app built with BLoC."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.5
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+
+  # State management - BLoC pattern for scalable, team-friendly architecture.
+  flutter_bloc: ^9.0.0
+  bloc: ^9.0.0
+
+  # Value-equality for events/states/models.
+  equatable: ^2.0.5
+
+  # Charts (line + pie/donut) used across Home, Trade and Portfolio screens.
+  fl_chart: ^0.69.0
+
+  # Number/currency formatting.
+  intl: ^0.20.2
+
+  # Typography.
+  google_fonts: ^6.2.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  bloc_test: ^10.0.0
+  mocktail: ^1.0.4
+
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
