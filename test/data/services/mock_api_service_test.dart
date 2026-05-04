@@ -103,7 +103,10 @@ void main() {
 
     test('sparkline ends exactly at totalBalanceUsd', () async {
       final BalanceSummary summary = await api.fetchBalanceSummary();
-      expect(summary.sparkline.last.price, 142850.0);
+      // Total balance is now derived from live per-asset prices times
+      // each holding's quantity, so assert against the field rather
+      // than a hardcoded number.
+      expect(summary.sparkline.last.price, summary.totalBalanceUsd);
     });
 
     test('respects clock advancement between calls', () async {

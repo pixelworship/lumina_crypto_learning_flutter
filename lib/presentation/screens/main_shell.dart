@@ -9,19 +9,19 @@ import '../blocs/markets/markets_event.dart';
 import '../blocs/navigation/navigation_cubit.dart';
 import '../blocs/portfolio/portfolio_bloc.dart';
 import '../blocs/portfolio/portfolio_event.dart';
-import '../blocs/trade/trade_bloc.dart';
-import '../blocs/trade/trade_event.dart';
 import '../widgets/lumina_app_bar.dart';
 import 'home_screen.dart';
 import 'markets_screen.dart';
 import 'portfolio_screen.dart';
 import 'profile_screen.dart';
-import 'trade_screen.dart';
 
-/// The persistent scaffold around all 5 main tabs.
+/// The persistent scaffold around the main tabs.
 ///
-/// We keep all five screens alive via [IndexedStack] so they preserve scroll
-/// position and don't refetch when the user navigates between tabs.
+/// We keep all tab screens alive via [IndexedStack] so they preserve scroll
+/// position and don't refetch when the user navigates between tabs. The
+/// asset detail experience used to be its own tab here (the "Trade" tab);
+/// it now lives off-shell and is pushed as a route from the markets and
+/// watchlist rows.
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
 
@@ -37,7 +37,6 @@ class _MainShellState extends State<MainShell> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ctx.read<HomeBloc>().add(const HomeRequested());
       ctx.read<MarketsBloc>().add(const MarketsRequested());
-      ctx.read<TradeBloc>().add(const TradeRequested());
       ctx.read<PortfolioBloc>().add(const PortfolioRequested());
     });
   }
@@ -54,7 +53,6 @@ class _MainShellState extends State<MainShell> {
               children: const <Widget>[
                 HomeScreen(),
                 MarketsScreen(),
-                TradeScreen(),
                 PortfolioScreen(),
                 ProfileScreen(),
               ],
@@ -86,11 +84,6 @@ class _LuminaBottomNav extends StatelessWidget {
       tab: AppTab.markets,
       icon: Icons.bar_chart_rounded,
       label: 'MARKETS',
-    ),
-    _NavItem(
-      tab: AppTab.trade,
-      icon: Icons.swap_horiz_rounded,
-      label: 'TRADE',
     ),
     _NavItem(
       tab: AppTab.portfolio,

@@ -1,5 +1,6 @@
 import '../models/balance_summary.dart';
 import '../models/crypto_asset.dart';
+import '../models/market_quotes_page.dart';
 import '../models/portfolio_holding.dart';
 import '../models/trade_pair_snapshot.dart';
 
@@ -17,6 +18,15 @@ import '../models/trade_pair_snapshot.dart';
 abstract class ApiService {
   /// `GET /markets/quotes` — top-of-book pricing for every supported asset.
   Future<List<CryptoQuote>> fetchMarketQuotes();
+
+  /// `GET /markets/quotes?offset=X&limit=Y` — paginated market quotes.
+  /// Used by the markets discovery screen to lazy-load assets in
+  /// fixed-size pages (default 20) so the initial render is fast and
+  /// the catalog can grow indefinitely without bloating memory.
+  Future<MarketQuotesPage> fetchMarketQuotesPage({
+    required int offset,
+    required int limit,
+  });
 
   /// `GET /accounts/watchlist` — the user's followed assets.
   Future<List<CryptoQuote>> fetchWatchlist();

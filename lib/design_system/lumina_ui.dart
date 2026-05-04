@@ -33,6 +33,7 @@ export 'components/cards/lumina_card.dart';
 export 'components/chips/lumina_chip.dart';
 export 'components/controls/lumina_segmented_control.dart';
 export 'components/feedback/lumina_change_pill.dart';
+export 'components/feedback/lumina_delta.dart';
 export 'components/feedback/lumina_empty_state.dart';
 export 'components/feedback/lumina_error_view.dart';
 export 'components/feedback/lumina_loading_indicator.dart';

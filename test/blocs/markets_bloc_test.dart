@@ -2,7 +2,10 @@ import 'package:bloc_test/bloc_test.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_demo/data/models/asset_category.dart';
 import 'package:flutter_demo/data/models/crypto_asset.dart';
+import 'package:flutter_demo/data/models/market_quotes_page.dart';
 import 'package:flutter_demo/data/repositories/market_repository.dart';
+import 'package:flutter_demo/data/services/asset_catalog.dart';
+import 'package:flutter_demo/data/services/live_price_feed.dart';
 import 'package:flutter_demo/presentation/blocs/markets/markets_bloc.dart';
 import 'package:flutter_demo/presentation/blocs/markets/markets_event.dart';
 import 'package:flutter_demo/presentation/blocs/markets/markets_state.dart';
@@ -10,6 +13,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 class _FakeMarketRepository extends Mock implements MarketRepository {}
+
+LivePriceFeed _silentFeed() => LivePriceFeed(
+  catalog: StaticAssetCatalog(),
+  startPaused: true,
+);
 
 const CryptoAsset _btc = CryptoAsset(
   id: 'btc',
@@ -48,16 +56,39 @@ const List<CryptoQuote> _seed = <CryptoQuote>[
 
 void main() {
   late _FakeMarketRepository repository;
+  late LivePriceFeed priceFeed;
 
   setUp(() {
     repository = _FakeMarketRepository();
+    priceFeed = _silentFeed();
     when(repository.getMarketQuotes).thenAnswer((_) async => _seed);
+    when(
+      () => repository.getMarketQuotesPage(
+        offset: any(named: 'offset'),
+        limit: any(named: 'limit'),
+      ),
+    ).thenAnswer(
+      (_) async => const MarketQuotesPage(
+        quotes: _seed,
+        nextOffset: 2,
+        hasMore: false,
+      ),
+    );
   });
+
+  tearDown(() async {
+    await priceFeed.dispose();
+  });
+
+  MarketsBloc buildBloc() => MarketsBloc(
+    marketRepository: repository,
+    priceFeed: priceFeed,
+  );
 
   group('MarketsBloc', () {
     blocTest<MarketsBloc, MarketsState>(
       'loads quotes on MarketsRequested',
-      build: () => MarketsBloc(marketRepository: repository),
+      build: buildBloc,
       act: (MarketsBloc bloc) => bloc.add(const MarketsRequested()),
       expect: () => <Matcher>[
         predicate<MarketsState>(
@@ -72,7 +103,7 @@ void main() {
 
     blocTest<MarketsBloc, MarketsState>(
       'filters by DeFi category',
-      build: () => MarketsBloc(marketRepository: repository),
+      build: buildBloc,
       seed: () => const MarketsState(
         status: MarketsStatus.success,
         quotes: _seed,
@@ -87,7 +118,7 @@ void main() {
 
     blocTest<MarketsBloc, MarketsState>(
       'filters by search query',
-      build: () => MarketsBloc(marketRepository: repository),
+      build: buildBloc,
       seed: () => const MarketsState(
         status: MarketsStatus.success,
         quotes: _seed,
@@ -102,9 +133,13 @@ void main() {
 
     blocTest<MarketsBloc, MarketsState>(
       'emits failure when repository throws',
-      setUp: () => when(repository.getMarketQuotes)
-          .thenThrow(Exception('boom')),
-      build: () => MarketsBloc(marketRepository: repository),
+      setUp: () => when(
+        () => repository.getMarketQuotesPage(
+          offset: any(named: 'offset'),
+          limit: any(named: 'limit'),
+        ),
+      ).thenThrow(Exception('boom')),
+      build: buildBloc,
       act: (MarketsBloc bloc) => bloc.add(const MarketsRequested()),
       expect: () => <Matcher>[
         predicate<MarketsState>(
@@ -114,6 +149,74 @@ void main() {
           (MarketsState s) => s.status == MarketsStatus.failure,
         ),
       ],
+    );
+
+    blocTest<MarketsBloc, MarketsState>(
+      'MarketsNextPageRequested appends paginated quotes',
+      setUp: () {
+        const CryptoAsset extra = CryptoAsset(
+          id: 'nova',
+          symbol: 'NOVA',
+          name: 'Nova',
+          color: Color(0xFF4ADE80),
+          iconLetter: 'N',
+          categories: <AssetCategory>[AssetCategory.defi],
+        );
+        when(
+          () => repository.getMarketQuotesPage(offset: 2, limit: any(named: 'limit')),
+        ).thenAnswer(
+          (_) async => const MarketQuotesPage(
+            quotes: <CryptoQuote>[
+              CryptoQuote(
+                asset: extra,
+                rank: 3,
+                price: 1.5,
+                change24hPercent: 0.0,
+                change24hAbsolute: 0.0,
+              ),
+            ],
+            nextOffset: 22,
+            hasMore: true,
+          ),
+        );
+      },
+      build: buildBloc,
+      seed: () => const MarketsState(
+        status: MarketsStatus.success,
+        quotes: _seed,
+        pageOffset: 2,
+        hasMore: true,
+      ),
+      act: (MarketsBloc bloc) =>
+          bloc.add(const MarketsNextPageRequested()),
+      verify: (MarketsBloc bloc) {
+        expect(bloc.state.quotes, hasLength(3));
+        expect(bloc.state.quotes.last.asset.symbol, 'NOVA');
+        expect(bloc.state.pageOffset, 22);
+        expect(bloc.state.isLoadingMore, isFalse);
+      },
+    );
+
+    blocTest<MarketsBloc, MarketsState>(
+      'MarketsNextPageRequested is a no-op when hasMore is false',
+      build: buildBloc,
+      seed: () => const MarketsState(
+        status: MarketsStatus.success,
+        quotes: _seed,
+        pageOffset: 9,
+        hasMore: false,
+      ),
+      act: (MarketsBloc bloc) =>
+          bloc.add(const MarketsNextPageRequested()),
+      expect: () => <MarketsState>[],
+      verify: (_) {
+        verifyNever(
+          () => repository.getMarketQuotesPage(
+            offset: any(named: 'offset'),
+            limit: any(named: 'limit'),
+          ),
+        );
+      },
     );
   });
 }

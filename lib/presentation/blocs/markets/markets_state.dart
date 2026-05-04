@@ -12,6 +12,9 @@ class MarketsState extends Equatable {
     this.category = AssetCategory.all,
     this.query = '',
     this.errorMessage,
+    this.pageOffset = 0,
+    this.hasMore = true,
+    this.isLoadingMore = false,
   });
 
   final MarketsStatus status;
@@ -19,6 +22,23 @@ class MarketsState extends Equatable {
   final AssetCategory category;
   final String query;
   final String? errorMessage;
+
+  /// Cursor for the next page of paginated quotes. Equal to
+  /// `quotes.length` when no filtering or duplicate suppression has
+  /// pruned the loaded set, but tracked separately so the cursor
+  /// stays aligned with the underlying API regardless of UI-side
+  /// filtering.
+  final int pageOffset;
+
+  /// Whether the API has more pages to serve. The mock returns
+  /// `true` indefinitely (the catalog is generated on demand); a
+  /// real backend would flip it to `false` once exhausted.
+  final bool hasMore;
+
+  /// True while a `MarketsNextPageRequested` is in flight.
+  /// Suppresses duplicate triggers from rapid scroll events and
+  /// drives the trailing loading indicator on the markets list.
+  final bool isLoadingMore;
 
   /// Quotes filtered by the active category and search query.
   List<CryptoQuote> get visibleQuotes {
@@ -41,6 +61,9 @@ class MarketsState extends Equatable {
     String? query,
     String? errorMessage,
     bool clearError = false,
+    int? pageOffset,
+    bool? hasMore,
+    bool? isLoadingMore,
   }) {
     return MarketsState(
       status: status ?? this.status,
@@ -48,6 +71,9 @@ class MarketsState extends Equatable {
       category: category ?? this.category,
       query: query ?? this.query,
       errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
+      pageOffset: pageOffset ?? this.pageOffset,
+      hasMore: hasMore ?? this.hasMore,
+      isLoadingMore: isLoadingMore ?? this.isLoadingMore,
     );
   }
 
@@ -58,5 +84,8 @@ class MarketsState extends Equatable {
     category,
     query,
     errorMessage,
+    pageOffset,
+    hasMore,
+    isLoadingMore,
   ];
 }

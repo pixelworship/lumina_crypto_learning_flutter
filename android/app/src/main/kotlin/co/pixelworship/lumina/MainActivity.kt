@@ -1,4 +1,4 @@
-package com.example.flutter_demo
+package co.pixelworship.lumina
 
 import io.flutter.embedding.android.FlutterActivity
 

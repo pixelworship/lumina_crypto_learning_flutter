@@ -38,6 +38,46 @@ void main() {
     });
   });
 
+  group('Formatters.compactCurrency', () {
+    test('keeps the full form for values under the compact threshold', () {
+      expect(Formatters.compactCurrency(0), r'$0.00');
+      expect(Formatters.compactCurrency(99.99), r'$99.99');
+      expect(Formatters.compactCurrency(999.99), r'$999.99');
+    });
+
+    test('compacts thousands to K', () {
+      expect(Formatters.compactCurrency(1500), r'$1.5K');
+      expect(Formatters.compactCurrency(64289.5), r'$64.3K');
+    });
+
+    test('compacts millions to M', () {
+      expect(Formatters.compactCurrency(1234567.89), r'$1.2M');
+    });
+
+    test('compacts billions to B', () {
+      expect(Formatters.compactCurrency(2.5e9), r'$2.5B');
+    });
+
+    test('handles negative values', () {
+      expect(Formatters.compactCurrency(-64289.5), r'-$64.3K');
+    });
+  });
+
+  group('Formatters.signedCompactCurrency', () {
+    test('prefixes positive compact values with +', () {
+      expect(Formatters.signedCompactCurrency(64289.5), r'+$64.3K');
+    });
+
+    test('prefixes negative compact values with - on absolute value', () {
+      expect(Formatters.signedCompactCurrency(-64289.5), r'-$64.3K');
+    });
+
+    test('prefixes small values with +/- using full currency form', () {
+      expect(Formatters.signedCompactCurrency(120.5), r'+$120.50');
+      expect(Formatters.signedCompactCurrency(-42.5), r'-$42.50');
+    });
+  });
+
   group('Formatters.percent', () {
     test('formats positive percent with + sign by default', () {
       expect(Formatters.percent(2.4), '+2.40%');

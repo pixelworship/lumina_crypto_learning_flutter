@@ -1,5 +1,7 @@
 import 'package:bloc_test/bloc_test.dart';
 import 'package:flutter_demo/data/repositories/portfolio_repository.dart';
+import 'package:flutter_demo/data/services/asset_catalog.dart';
+import 'package:flutter_demo/data/services/live_price_feed.dart';
 import 'package:flutter_demo/presentation/blocs/portfolio/portfolio_bloc.dart';
 import 'package:flutter_demo/presentation/blocs/portfolio/portfolio_event.dart';
 import 'package:flutter_demo/presentation/blocs/portfolio/portfolio_state.dart';
@@ -10,14 +12,28 @@ import '../fixtures/test_assets.dart';
 
 class _MockPortfolioRepository extends Mock implements PortfolioRepository {}
 
+LivePriceFeed _silentFeed() => LivePriceFeed(
+  catalog: StaticAssetCatalog(),
+  startPaused: true,
+);
+
 void main() {
   late _MockPortfolioRepository repository;
+  late LivePriceFeed priceFeed;
 
   setUp(() {
     repository = _MockPortfolioRepository();
+    priceFeed = _silentFeed();
   });
 
-  PortfolioBloc buildBloc() => PortfolioBloc(portfolioRepository: repository);
+  tearDown(() async {
+    await priceFeed.dispose();
+  });
+
+  PortfolioBloc buildBloc() => PortfolioBloc(
+    portfolioRepository: repository,
+    priceFeed: priceFeed,
+  );
 
   group('PortfolioBloc.PortfolioRequested', () {
     blocTest<PortfolioBloc, PortfolioState>(

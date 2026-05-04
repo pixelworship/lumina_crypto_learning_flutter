@@ -38,13 +38,18 @@ class LuminaChangePill extends StatelessWidget {
         ? t.colors.feedbackPositiveSurface
         : t.colors.feedbackNegativeSurface;
 
-    final String pctText = percentFormatter?.call(percent) ??
-        '${percent >= 0 ? '+' : '-'}${percent.abs().toStringAsFixed(2)}%';
+    // The pill's directional arrow already carries the sign, so
+    // every formatter call is given the absolute value and the
+    // built-in fallback never prefixes a `+` or `-`. Callers can
+    // still pass a signed formatter if they really want one
+    // (the .abs() defends against double-rendering the sign).
+    final String pctText = percentFormatter?.call(percent.abs()) ??
+        '${percent.abs().toStringAsFixed(2)}%';
     final List<String> parts = <String>[];
     if (absoluteValue != null) {
       parts.add(
-        absoluteFormatter?.call(absoluteValue!) ??
-            absoluteValue!.toStringAsFixed(2),
+        absoluteFormatter?.call(absoluteValue!.abs()) ??
+            absoluteValue!.abs().toStringAsFixed(2),
       );
     }
     parts.add('($pctText)');

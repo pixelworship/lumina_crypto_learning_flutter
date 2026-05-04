@@ -2,6 +2,8 @@ import 'package:bloc_test/bloc_test.dart';
 import 'package:flutter_demo/data/models/crypto_asset.dart';
 import 'package:flutter_demo/data/repositories/market_repository.dart';
 import 'package:flutter_demo/data/repositories/portfolio_repository.dart';
+import 'package:flutter_demo/data/services/asset_catalog.dart';
+import 'package:flutter_demo/data/services/live_price_feed.dart';
 import 'package:flutter_demo/presentation/blocs/home/home_bloc.dart';
 import 'package:flutter_demo/presentation/blocs/home/home_event.dart';
 import 'package:flutter_demo/presentation/blocs/home/home_state.dart';
@@ -14,18 +16,33 @@ class _MockPortfolioRepository extends Mock implements PortfolioRepository {}
 
 class _MockMarketRepository extends Mock implements MarketRepository {}
 
+/// Spins up a paused [LivePriceFeed] so the bloc's subscription
+/// doesn't fire spurious `_PricesUpdated` events that would interfere
+/// with `expect:` assertions.
+LivePriceFeed _silentFeed() => LivePriceFeed(
+  catalog: StaticAssetCatalog(),
+  startPaused: true,
+);
+
 void main() {
   late _MockPortfolioRepository portfolioRepository;
   late _MockMarketRepository marketRepository;
+  late LivePriceFeed priceFeed;
 
   setUp(() {
     portfolioRepository = _MockPortfolioRepository();
     marketRepository = _MockMarketRepository();
+    priceFeed = _silentFeed();
+  });
+
+  tearDown(() async {
+    await priceFeed.dispose();
   });
 
   HomeBloc buildBloc() => HomeBloc(
     portfolioRepository: portfolioRepository,
     marketRepository: marketRepository,
+    priceFeed: priceFeed,
   );
 
   group('HomeBloc.HomeRequested', () {
@@ -35,6 +52,9 @@ void main() {
         when(
           portfolioRepository.getBalanceSummary,
         ).thenAnswer((_) async => TestAssets.balance);
+        when(
+          portfolioRepository.getPortfolio,
+        ).thenAnswer((_) async => TestAssets.portfolio);
         when(
           marketRepository.getWatchlist,
         ).thenAnswer((_) async => TestAssets.watchlist);
@@ -63,6 +83,9 @@ void main() {
           portfolioRepository.getBalanceSummary,
         ).thenThrow(Exception('boom'));
         when(
+          portfolioRepository.getPortfolio,
+        ).thenAnswer((_) async => TestAssets.portfolio);
+        when(
           marketRepository.getWatchlist,
         ).thenAnswer((_) async => <CryptoQuote>[]);
       },
@@ -83,6 +106,9 @@ void main() {
         when(portfolioRepository.getBalanceSummary).thenAnswer(
           (_) async => TestAssets.balance,
         );
+        when(
+          portfolioRepository.getPortfolio,
+        ).thenAnswer((_) async => TestAssets.portfolio);
         when(marketRepository.getWatchlist).thenThrow(StateError('offline'));
       },
       build: buildBloc,
@@ -103,6 +129,9 @@ void main() {
         when(
           portfolioRepository.getBalanceSummary,
         ).thenAnswer((_) async => TestAssets.balance);
+        when(
+          portfolioRepository.getPortfolio,
+        ).thenAnswer((_) async => TestAssets.portfolio);
         when(
           marketRepository.getWatchlist,
         ).thenAnswer((_) async => TestAssets.watchlist);
@@ -130,6 +159,9 @@ void main() {
         when(
           portfolioRepository.getBalanceSummary,
         ).thenThrow(Exception('boom'));
+        when(
+          portfolioRepository.getPortfolio,
+        ).thenAnswer((_) async => TestAssets.portfolio);
       },
       build: buildBloc,
       seed: () => HomeState(

@@ -50,6 +50,12 @@ class LuminaColorScheme {
     required this.chartGrid,
     required this.chartFillTop,
     required this.chartFillBottom,
+    required this.chartCandleBullish,
+    required this.chartCandleBearish,
+    required this.chartVolumeArea,
+    required this.chartCrosshair,
+    required this.chartGapWarning,
+    required this.chartGapWarningSurface,
     required this.brandBtc,
     required this.brandEth,
     required this.brandSol,
@@ -96,6 +102,12 @@ class LuminaColorScheme {
       chartGrid: LuminaPalette.indigo600,
       chartFillTop: Color(0x552DE3D2),
       chartFillBottom: Color.fromARGB(0, 39, 211, 193),
+      chartCandleBullish: LuminaPalette.emerald400,
+      chartCandleBearish: LuminaPalette.rose400,
+      chartVolumeArea: LuminaPalette.violet400,
+      chartCrosshair: Color(0x8CF5F3FF),
+      chartGapWarning: Color(0x99D32F2F),
+      chartGapWarningSurface: Color(0x33D32F2F),
       brandBtc: LuminaPalette.brandBtc,
       brandEth: LuminaPalette.brandEth,
       brandSol: LuminaPalette.brandSol,
@@ -144,6 +156,12 @@ class LuminaColorScheme {
       chartGrid: LuminaPalette.neutral200,
       chartFillTop: Color(0x4015B5A6),
       chartFillBottom: Color(0x0015B5A6),
+      chartCandleBullish: LuminaPalette.emerald600,
+      chartCandleBearish: LuminaPalette.rose600,
+      chartVolumeArea: LuminaPalette.violet600,
+      chartCrosshair: Color(0x8C15102E),
+      chartGapWarning: Color(0xCCB91C1C),
+      chartGapWarningSurface: Color(0x33EF4444),
       brandBtc: LuminaPalette.brandBtc,
       brandEth: LuminaPalette.brandEth,
       brandSol: LuminaPalette.brandSol,
@@ -191,6 +209,24 @@ class LuminaColorScheme {
   final Color chartGrid;
   final Color chartFillTop;
   final Color chartFillBottom;
+
+  /// Candle body / wick color when the close ≥ open.
+  final Color chartCandleBullish;
+
+  /// Candle body / wick color when the close < open.
+  final Color chartCandleBearish;
+
+  /// Tint of the translucent volume-area overlay drawn behind candles.
+  final Color chartVolumeArea;
+
+  /// Color used for the dashed crosshair drawn on long-press.
+  final Color chartCrosshair;
+
+  /// Stroke / glyph color used for "data unavailable" gap markers.
+  final Color chartGapWarning;
+
+  /// Translucent fill behind gap markers.
+  final Color chartGapWarningSurface;
 
   // Brand colors stay constant across themes.
   final Color brandBtc;
@@ -263,6 +299,15 @@ class LuminaColorScheme {
       chartGrid: l(a.chartGrid, b.chartGrid),
       chartFillTop: l(a.chartFillTop, b.chartFillTop),
       chartFillBottom: l(a.chartFillBottom, b.chartFillBottom),
+      chartCandleBullish: l(a.chartCandleBullish, b.chartCandleBullish),
+      chartCandleBearish: l(a.chartCandleBearish, b.chartCandleBearish),
+      chartVolumeArea: l(a.chartVolumeArea, b.chartVolumeArea),
+      chartCrosshair: l(a.chartCrosshair, b.chartCrosshair),
+      chartGapWarning: l(a.chartGapWarning, b.chartGapWarning),
+      chartGapWarningSurface: l(
+        a.chartGapWarningSurface,
+        b.chartGapWarningSurface,
+      ),
       brandBtc: a.brandBtc,
       brandEth: a.brandEth,
       brandSol: a.brandSol,

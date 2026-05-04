@@ -1,4 +1,5 @@
 import 'package:flutter_demo/data/models/crypto_asset.dart';
+import 'package:flutter_demo/data/models/market_quotes_page.dart';
 import 'package:flutter_demo/data/repositories/market_repository.dart';
 import 'package:flutter_demo/data/services/api_service.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -67,5 +68,28 @@ void main() {
 
     await repository.getWatchlist();
     verify(api.fetchWatchlist).called(1);
+  });
+
+  group('MockMarketRepository.getMarketQuotesPage', () {
+    test('forwards offset and limit to ApiService.fetchMarketQuotesPage',
+        () async {
+      const MarketQuotesPage page = MarketQuotesPage(
+        quotes: <CryptoQuote>[TestAssets.btcQuote],
+        nextOffset: 20,
+        hasMore: true,
+      );
+      when(
+        () => api.fetchMarketQuotesPage(
+          offset: any(named: 'offset'),
+          limit: any(named: 'limit'),
+        ),
+      ).thenAnswer((_) async => page);
+
+      final MarketQuotesPage result =
+          await repository.getMarketQuotesPage(offset: 0, limit: 20);
+
+      expect(result, page);
+      verify(() => api.fetchMarketQuotesPage(offset: 0, limit: 20)).called(1);
+    });
   });
 }

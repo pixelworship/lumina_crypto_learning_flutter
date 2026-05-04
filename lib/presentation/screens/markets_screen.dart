@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../core/diagnostics/mrm_trace.dart';
 import '../../data/models/asset_category.dart';
 import '../../design_system/lumina_ui.dart';
 import '../blocs/markets/markets_bloc.dart';
 import '../blocs/markets/markets_event.dart';
 import '../blocs/markets/markets_state.dart';
-import '../blocs/navigation/navigation_cubit.dart';
 import '../widgets/asset_market_row.dart';
+import 'asset_detail_screen.dart';
 
 class MarketsScreen extends StatefulWidget {
   const MarketsScreen({super.key});
@@ -18,6 +19,13 @@ class MarketsScreen extends StatefulWidget {
 
 class _MarketsScreenState extends State<MarketsScreen> {
   late final TextEditingController _controller;
+  late final ScrollController _scrollController;
+
+  /// Distance (in px) from the bottom of the list at which we
+  /// pre-fetch the next page. Tuned so by the time the trailing
+  /// loading indicator becomes visible the request is already in
+  /// flight; the user never reaches a hard stop.
+  static const double _prefetchThresholdPx = 320;
 
   @override
   void initState() {
@@ -25,12 +33,27 @@ class _MarketsScreenState extends State<MarketsScreen> {
     _controller = TextEditingController(
       text: context.read<MarketsBloc>().state.query,
     );
+    _scrollController = ScrollController()..addListener(_onScroll);
   }
 
   @override
   void dispose() {
+    _scrollController
+      ..removeListener(_onScroll)
+      ..dispose();
     _controller.dispose();
     super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final ScrollPosition pos = _scrollController.position;
+    if (pos.pixels < pos.maxScrollExtent - _prefetchThresholdPx) return;
+    final MarketsState state = context.read<MarketsBloc>().state;
+    if (!state.hasMore) return;
+    if (state.isLoadingMore) return;
+    if (state.status != MarketsStatus.success) return;
+    context.read<MarketsBloc>().add(const MarketsNextPageRequested());
   }
 
   @override
@@ -102,6 +125,10 @@ class _MarketsScreenState extends State<MarketsScreen> {
                         'Try a different search term or pick another category.',
                   );
                 }
+                final bool showFooter =
+                    state.isLoadingMore || state.hasMore;
+                final int itemCount =
+                    visible.length + (showFooter ? 1 : 0);
                 return RefreshIndicator(
                   color: t.colors.accentPrimary,
                   backgroundColor: t.colors.surfaceRaised,
@@ -115,27 +142,76 @@ class _MarketsScreenState extends State<MarketsScreen> {
                         );
                   },
                   child: ListView.separated(
+                    controller: _scrollController,
                     padding: EdgeInsets.only(
                       bottom: t.spacing.xxl,
                       top: t.spacing.xxs,
                     ),
-                    itemCount: visible.length,
+                    itemCount: itemCount,
                     separatorBuilder:
-                        (BuildContext context, int index) =>
-                            const Divider(height: 1),
-                    itemBuilder: (BuildContext context, int index) =>
-                        AssetMarketRow(
-                      quote: state.visibleQuotes[index],
-                      onTap: () => context
-                          .read<NavigationCubit>()
-                          .select(AppTab.trade),
-                    ),
+                        (BuildContext context, int index) {
+                      // Suppress the divider just before the footer
+                      // so the loading indicator floats free of the
+                      // list rule.
+                      if (showFooter && index == visible.length - 1) {
+                        return const SizedBox.shrink();
+                      }
+                      return const Divider(height: 1);
+                    },
+                    itemBuilder: (BuildContext context, int index) {
+                      if (showFooter && index == visible.length) {
+                        return _PaginationFooter(
+                          isLoading: state.isLoadingMore,
+                        );
+                      }
+                      final quote = state.visibleQuotes[index];
+                      return AssetMarketRow(
+                        quote: quote,
+                        onTap: () =>
+                            _openAsset(context, quote.asset.symbol),
+                      );
+                    },
                   ),
                 );
               },
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// Pushes a brand-new [AssetDetailScreen] route for [symbol]. Each
+  /// push spins up its own scoped [TradeBloc] + [ChartBloc] seeded
+  /// with the requested symbol, so the detail page is always a fresh,
+  /// isolated experience — no leftover state from the previously
+  /// viewed asset.
+  void _openAsset(BuildContext context, String symbol) {
+    MrmTrace.start('tap $symbol (markets)');
+    MrmTrace.mark(10, 'markets._openAsset', 'symbol=$symbol');
+    Navigator.of(context).push(AssetDetailScreen.route(symbol));
+    MrmTrace.mark(11, 'AssetDetailScreen pushed');
+  }
+}
+
+/// Trailing list item rendered while paginated quotes are in flight.
+/// Stays mounted (with reduced height) when idle so the auto-prefetch
+/// has a stable scroll target — flickering it in/out on every page
+/// would cause the scroll metrics to jump.
+class _PaginationFooter extends StatelessWidget {
+  const _PaginationFooter({required this.isLoading});
+
+  final bool isLoading;
+
+  @override
+  Widget build(BuildContext context) {
+    final LuminaTokens t = context.tokens;
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: t.spacing.lg),
+      child: Center(
+        child: isLoading
+            ? const LuminaLoadingIndicator()
+            : SizedBox(height: t.spacing.lg),
       ),
     );
   }

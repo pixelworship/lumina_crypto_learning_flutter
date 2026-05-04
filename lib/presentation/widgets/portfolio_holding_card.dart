@@ -13,9 +13,6 @@ class PortfolioHoldingCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final LuminaTokens t = context.tokens;
-    final Color gainColor = holding.isPositive
-        ? t.colors.feedbackPositive
-        : t.colors.feedbackNegative;
     return LuminaCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -51,7 +48,7 @@ class PortfolioHoldingCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: <Widget>[
                   Text(
-                    Formatters.currency(holding.marketValue),
+                    Formatters.compactCurrency(holding.marketValue),
                     style: t.typography.numericSm.copyWith(
                       color: t.colors.contentPrimary,
                       fontSize: 15,
@@ -59,7 +56,7 @@ class PortfolioHoldingCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    'Cost: ${Formatters.currency(holding.costBasis, showCents: false)}',
+                    'Cost: ${Formatters.compactCurrency(holding.costBasis)}',
                     style: t.typography.bodySm.copyWith(
                       color: t.colors.contentTertiary,
                       fontSize: 11,
@@ -72,10 +69,13 @@ class PortfolioHoldingCard extends StatelessWidget {
           SizedBox(height: t.spacing.md),
           Row(
             children: <Widget>[
-              Text(
-                Formatters.signedCurrency(holding.unrealizedGainUsd),
+              LuminaDelta(
+                isPositive: holding.isPositive,
+                isZero: holding.unrealizedGainUsd == 0,
+                text: Formatters.compactCurrency(
+                  holding.unrealizedGainUsd.abs(),
+                ),
                 style: t.typography.bodyMd.copyWith(
-                  color: gainColor,
                   fontWeight: FontWeight.w700,
                 ),
               ),
@@ -83,7 +83,8 @@ class PortfolioHoldingCard extends StatelessWidget {
               LuminaChangePill(
                 percent: holding.unrealizedGainPercent,
                 size: LuminaChangePillSize.sm,
-                percentFormatter: (double v) => Formatters.percent(v),
+                percentFormatter: (double v) =>
+                    Formatters.percent(v, withSign: false),
               ),
               const Spacer(),
               Text(

@@ -33,7 +33,7 @@ class BalanceCard extends StatelessWidget {
           ),
           SizedBox(height: t.spacing.xs + 2),
           Text(
-            Formatters.currency(balance.totalBalanceUsd),
+            Formatters.compactCurrency(balance.totalBalanceUsd),
             style: t.typography.numericLg.copyWith(
               color: t.colors.contentPrimary,
             ),
@@ -44,8 +44,9 @@ class BalanceCard extends StatelessWidget {
               LuminaChangePill(
                 percent: balance.change24hPercent,
                 absoluteValue: balance.change24hUsd,
-                absoluteFormatter: Formatters.signedCurrency,
-                percentFormatter: Formatters.percent,
+                absoluteFormatter: Formatters.compactCurrency,
+                percentFormatter: (double v) =>
+                    Formatters.percent(v, withSign: false),
               ),
               SizedBox(width: t.spacing.sm),
               Text(
@@ -104,7 +105,7 @@ class ValueCard extends StatelessWidget {
           ),
           SizedBox(height: t.spacing.sm),
           Text(
-            Formatters.currency(value),
+            Formatters.compactCurrency(value),
             style: t.typography.numericLg.copyWith(
               color: t.colors.accentPrimary,
               fontSize: 28,
@@ -116,8 +117,9 @@ class ValueCard extends StatelessWidget {
             child: LuminaChangePill(
               percent: changePercent,
               absoluteValue: changeAbsolute,
-              absoluteFormatter: Formatters.signedCurrency,
-              percentFormatter: Formatters.percent,
+              absoluteFormatter: Formatters.compactCurrency,
+              percentFormatter: (double v) =>
+                  Formatters.percent(v, withSign: false),
               suffix: changeSuffix,
             ),
           ),

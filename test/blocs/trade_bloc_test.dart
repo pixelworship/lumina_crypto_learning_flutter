@@ -1,6 +1,8 @@
 import 'package:bloc_test/bloc_test.dart';
 import 'package:flutter_demo/data/models/trade_pair_snapshot.dart';
 import 'package:flutter_demo/data/repositories/trade_repository.dart';
+import 'package:flutter_demo/data/services/asset_catalog.dart';
+import 'package:flutter_demo/data/services/live_price_feed.dart';
 import 'package:flutter_demo/presentation/blocs/trade/trade_bloc.dart';
 import 'package:flutter_demo/presentation/blocs/trade/trade_event.dart';
 import 'package:flutter_demo/presentation/blocs/trade/trade_state.dart';
@@ -11,18 +13,32 @@ import '../fixtures/test_assets.dart';
 
 class _MockTradeRepository extends Mock implements TradeRepository {}
 
+LivePriceFeed _silentFeed() => LivePriceFeed(
+  catalog: StaticAssetCatalog(),
+  startPaused: true,
+);
+
 void main() {
   setUpAll(() {
     registerFallbackValue(ChartRange.oneDay);
   });
 
   late _MockTradeRepository repository;
+  late LivePriceFeed priceFeed;
 
   setUp(() {
     repository = _MockTradeRepository();
+    priceFeed = _silentFeed();
   });
 
-  TradeBloc buildBloc() => TradeBloc(tradeRepository: repository);
+  tearDown(() async {
+    await priceFeed.dispose();
+  });
+
+  TradeBloc buildBloc() => TradeBloc(
+    tradeRepository: repository,
+    priceFeed: priceFeed,
+  );
 
   group('TradeBloc.TradeRequested', () {
     blocTest<TradeBloc, TradeState>(

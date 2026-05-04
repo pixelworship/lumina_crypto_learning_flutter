@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/utils/formatters.dart';
 import '../../data/models/crypto_asset.dart';
 import '../../design_system/lumina_ui.dart';
+import 'asset_sparkline.dart';
 
 /// Markets list row: rank + asset + price + 24h change.
 class AssetMarketRow extends StatelessWidget {
@@ -14,9 +15,6 @@ class AssetMarketRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final LuminaTokens t = context.tokens;
-    final Color changeColor = quote.isPositive
-        ? t.colors.feedbackPositive
-        : t.colors.feedbackNegative;
 
     return InkWell(
       onTap: onTap,
@@ -64,22 +62,28 @@ class AssetMarketRow extends StatelessWidget {
                 ],
               ),
             ),
+            AssetSparkline(
+              symbol: quote.asset.symbol,
+              isPositive: quote.isPositive,
+            ),
+            SizedBox(width: t.spacing.md),
             Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: <Widget>[
                 Text(
-                  Formatters.currency(quote.price),
+                  Formatters.compactCurrency(quote.price),
                   style: t.typography.numericSm.copyWith(
                     color: t.colors.contentPrimary,
                     fontSize: 14,
                   ),
                 ),
                 SizedBox(height: t.spacing.xxs),
-                Text(
-                  Formatters.percent(quote.change24hPercent),
-                  style: t.typography.bodySm.copyWith(
-                    color: changeColor,
-                    fontWeight: FontWeight.w600,
+                LuminaDelta(
+                  isPositive: quote.isPositive,
+                  isZero: quote.change24hPercent == 0,
+                  text: Formatters.percent(
+                    quote.change24hPercent,
+                    withSign: false,
                   ),
                 ),
               ],
@@ -101,9 +105,6 @@ class WatchlistRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final LuminaTokens t = context.tokens;
-    final Color changeColor = quote.isPositive
-        ? t.colors.feedbackPositive
-        : t.colors.feedbackNegative;
     return LuminaListTile(
       onTap: onTap,
       title: quote.asset.name,
@@ -112,33 +113,34 @@ class WatchlistRow extends StatelessWidget {
         color: quote.asset.color,
         label: quote.asset.iconLetter,
       ),
-      trailing: Column(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        mainAxisAlignment: MainAxisAlignment.center,
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: <Widget>[
-          Text(
-            Formatters.currency(quote.price),
-            style: t.typography.numericSm.copyWith(
-              color: t.colors.contentPrimary,
-              fontSize: 15,
-            ),
+          AssetSparkline(
+            symbol: quote.asset.symbol,
+            isPositive: quote.isPositive,
+            size: const Size(56, 24),
           ),
-          SizedBox(height: t.spacing.xxs),
-          Row(
+          SizedBox(width: t.spacing.md),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: <Widget>[
-              Icon(
-                quote.isPositive
-                    ? Icons.arrow_upward_rounded
-                    : Icons.arrow_downward_rounded,
-                size: 12,
-                color: changeColor,
-              ),
-              const SizedBox(width: 2),
               Text(
-                Formatters.percent(quote.change24hPercent, withSign: false),
-                style: t.typography.bodySm.copyWith(
-                  color: changeColor,
-                  fontWeight: FontWeight.w600,
+                Formatters.compactCurrency(quote.price),
+                style: t.typography.numericSm.copyWith(
+                  color: t.colors.contentPrimary,
+                  fontSize: 15,
+                ),
+              ),
+              SizedBox(height: t.spacing.xxs),
+              LuminaDelta(
+                isPositive: quote.isPositive,
+                isZero: quote.change24hPercent == 0,
+                text: Formatters.percent(
+                  quote.change24hPercent,
+                  withSign: false,
                 ),
               ),
             ],
