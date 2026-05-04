@@ -48,7 +48,11 @@ class LuminaAppBar extends StatelessWidget implements PreferredSizeWidget {
                 ],
               ),
             ),
-            child: const Icon(Icons.bolt, size: 14, color: Colors.white),
+            child: Icon(
+              Icons.bolt,
+              size: 14,
+              color: t.colors.contentInverse,
+            ),
           ),
           SizedBox(width: t.spacing.sm),
           Text(

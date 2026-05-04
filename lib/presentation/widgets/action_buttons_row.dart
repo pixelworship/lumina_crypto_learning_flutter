@@ -64,12 +64,12 @@ class ActionButtonsRow extends StatelessWidget {
     super.key,
     required this.onDeposit,
     required this.onWithdraw,
-    required this.onSwap,
+    required this.onPurchase,
   });
 
   final VoidCallback onDeposit;
   final VoidCallback onWithdraw;
-  final VoidCallback onSwap;
+  final VoidCallback onPurchase;
 
   @override
   Widget build(BuildContext context) {
@@ -95,9 +95,9 @@ class ActionButtonsRow extends StatelessWidget {
         SizedBox(width: t.spacing.md),
         Expanded(
           child: _StackedActionButton(
-            icon: Icons.swap_horiz_rounded,
-            label: 'SWAP',
-            onPressed: onSwap,
+            icon: Icons.add_shopping_cart_rounded,
+            label: 'BUY',
+            onPressed: onPurchase,
           ),
         ),
       ],

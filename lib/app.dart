@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'data/repositories/fill_repository.dart';
 import 'data/repositories/historical_tick_repository.dart';
 import 'data/repositories/market_repository.dart';
 import 'data/repositories/portfolio_repository.dart';
@@ -38,10 +39,19 @@ class LuminaApp extends StatelessWidget {
   const LuminaApp({
     super.key,
     ApiService? apiOverride,
+    FillRepository? fillRepositoryOverride,
     this.startChartStreaming = true,
-  }) : _apiOverride = apiOverride;
+  })  : _apiOverride = apiOverride,
+        _fillRepositoryOverride = fillRepositoryOverride;
 
   final ApiService? _apiOverride;
+
+  /// Optional pre-built fill repository. Production wiring (in
+  /// `main.dart`) opens a Hive box and passes a [LocalFillRepository]
+  /// here; widget tests omit this parameter and the build method
+  /// falls back to an [InMemoryFillRepository] so the test tree
+  /// doesn't need to bootstrap Hive.
+  final FillRepository? _fillRepositoryOverride;
 
   /// When false, the chart's live tick stream is not started on app
   /// boot. Used by widget tests so animation drivers don't keep
@@ -93,6 +103,13 @@ class LuminaApp extends StatelessWidget {
     // ValueListenable so per-row repaints stay surgical.
     final SparklineFeed sparklineFeed = SparklineFeed(feed: priceFeed);
 
+    // User fills (executed purchases). Production main wires a
+    // Hive-backed [LocalFillRepository] via the override; widget
+    // tests fall back to a volatile in-memory shim so they don't
+    // need to spin up Hive on disk.
+    final FillRepository fillRepository =
+        _fillRepositoryOverride ?? InMemoryFillRepository();
+
     return MultiRepositoryProvider(
       providers: <RepositoryProvider<dynamic>>[
         RepositoryProvider<ApiService>(create: (_) => api),
@@ -130,6 +147,10 @@ class LuminaApp extends StatelessWidget {
             api: ctx.read<HistoricalPriceApi>(),
             cache: ctx.read<HistoricalTickCache>(),
           ),
+        ),
+        RepositoryProvider<FillRepository>(
+          create: (_) => fillRepository,
+          dispose: (FillRepository repo) => repo.dispose(),
         ),
       ],
       child: MultiBlocProvider(

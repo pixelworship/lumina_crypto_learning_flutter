@@ -59,7 +59,7 @@ void main() {
       expect(find.text('Watchlist'), findsOneWidget);
       expect(find.text('DEPOSIT'), findsOneWidget);
       expect(find.text('WITHDRAW'), findsOneWidget);
-      expect(find.text('SWAP'), findsOneWidget);
+      expect(find.text('BUY'), findsOneWidget);
     });
 
     testWidgets('switching to Portfolio tab shows allocation + holdings', (
@@ -95,13 +95,13 @@ void main() {
       // old 1H/1D/... range selector).
       expect(find.text('1m'), findsOneWidget);
       expect(find.text('1h'), findsOneWidget);
-      // Swap card lives below the chart; scroll it into view.
+      // Purchase card lives below the chart; scroll it into view.
       await tester.scrollUntilVisible(
-        find.text('Swap'),
+        find.text('Buy'),
         300,
         scrollable: find.byType(Scrollable).first,
       );
-      expect(find.text('Swap'), findsOneWidget);
+      expect(find.text('Buy'), findsOneWidget);
     });
 
     testWidgets('search filters the markets list', (WidgetTester tester) async {

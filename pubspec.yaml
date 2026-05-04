@@ -28,6 +28,13 @@ dependencies:
   # Typography.
   google_fonts: ^6.2.1
 
+  # Local persistence for user fills (pure-Dart Hive box on disk +
+  # in-memory cache). Hand-written TypeAdapters live next to the
+  # Fill model so we don't take the codegen dependency.
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+  path_provider: ^2.1.5
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

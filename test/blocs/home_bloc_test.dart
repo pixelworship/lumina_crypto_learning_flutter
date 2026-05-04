@@ -209,11 +209,11 @@ void main() {
       await bloc.close();
     });
 
-    test('swap action does not touch portfolio repository', () async {
+    test('purchase action does not touch portfolio repository', () async {
       final HomeBloc bloc = buildBloc();
 
       bloc.add(
-        const HomeQuickActionTriggered(HomeQuickAction.swap),
+        const HomeQuickActionTriggered(HomeQuickAction.purchase),
       );
       await Future<void>.delayed(Duration.zero);
 

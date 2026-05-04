@@ -7,10 +7,12 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../core/concurrency/background.dart';
 import '../../../core/diagnostics/mrm_trace.dart';
 import '../../../data/models/candle.dart';
+import '../../../data/models/fill.dart';
 import '../../../data/models/market_event.dart';
 import '../../../data/models/pause_gap.dart';
 import '../../../data/models/tick.dart';
 import '../../../data/models/timeframe.dart';
+import '../../../data/repositories/fill_repository.dart';
 import '../../../data/repositories/historical_tick_repository.dart';
 import '../../../data/repositories/tick_repository.dart';
 import '../../../data/services/candle_aggregator.dart';
@@ -57,11 +59,13 @@ class ChartBloc extends Bloc<ChartEvent, ChartState> {
   ChartBloc({
     required TickRepository repository,
     required HistoricalTickRepository historicalRepository,
+    required FillRepository fillRepository,
     CandleAggregator aggregator = const CandleAggregator(),
     Random? random,
     String initialSymbol = 'BTC',
   }) : _repository = repository,
        _historicalRepository = historicalRepository,
+       _fillRepository = fillRepository,
        _aggregator = aggregator,
        _random = random ?? Random(),
        super(ChartState.initial(symbol: initialSymbol)) {
@@ -80,10 +84,12 @@ class ChartBloc extends Bloc<ChartEvent, ChartState> {
     on<HistoryExtendRequested>(_onHistoryExtendRequested);
     on<MarketEventSpawnRequested>(_onMarketEventSpawnRequested);
     on<_MarketEventTimerTicked>(_onMarketEventTimerTicked);
+    on<_FillsUpdated>(_onFillsUpdated);
   }
 
   final TickRepository _repository;
   final HistoricalTickRepository _historicalRepository;
+  final FillRepository _fillRepository;
   final CandleAggregator _aggregator;
   final Random _random;
   final Queue<Tick> _tickHistory = Queue<Tick>();
@@ -94,6 +100,7 @@ class ChartBloc extends Bloc<ChartEvent, ChartState> {
   final List<PauseGap> _pastGaps = <PauseGap>[];
 
   StreamSubscription<Tick>? _subscription;
+  StreamSubscription<List<Fill>>? _fillSubscription;
   Timer? _eventTimer;
 
   Future<void> _onStarted(
@@ -112,6 +119,8 @@ class ChartBloc extends Bloc<ChartEvent, ChartState> {
   ) async {
     await _subscription?.cancel();
     _subscription = null;
+    await _fillSubscription?.cancel();
+    _fillSubscription = null;
     _eventTimer?.cancel();
     _eventTimer = null;
     emit(state.copyWith(isStreaming: false));
@@ -130,9 +139,12 @@ class ChartBloc extends Bloc<ChartEvent, ChartState> {
 
     // Tear down the current subscription + reset internal queues so
     // ticks for the previous symbol can't bleed into the new one's
-    // candle history.
+    // candle history. Fills are scoped per-symbol too — drop the
+    // previous symbol's subscription before re-subscribing below.
     await _subscription?.cancel();
     _subscription = null;
+    await _fillSubscription?.cancel();
+    _fillSubscription = null;
     _tickHistory.clear();
     _pastGaps.clear();
 
@@ -145,6 +157,7 @@ class ChartBloc extends Bloc<ChartEvent, ChartState> {
         symbol: event.symbol,
         candles: const <Candle>[],
         events: const <MarketEvent>[],
+        fills: const <Fill>[],
         clearLastPrice: true,
         clearPauseStartedAt: true,
         isPaused: false,
@@ -249,6 +262,16 @@ class ChartBloc extends Bloc<ChartEvent, ChartState> {
       (Tick tick) => add(_TickReceived(tick)),
     );
     MrmTrace.end(42, 'ChartBloc subscribed (asset-tap flow complete)');
+
+    // Per-symbol fills stream. The repository's `watchFills` replays
+    // the current snapshot synchronously to new subscribers, so a
+    // pre-existing fill list lands in `state.fills` without an
+    // explicit `getFills` call. Subsequent purchases broadcast fresh
+    // snapshots through the same stream.
+    await _fillSubscription?.cancel();
+    _fillSubscription = _fillRepository.watchFills(symbol).listen(
+      (List<Fill> fills) => add(_FillsUpdated(fills)),
+    );
 
     _scheduleNextEventTick();
   }
@@ -529,6 +552,21 @@ class ChartBloc extends Bloc<ChartEvent, ChartState> {
     _scheduleNextEventTick();
   }
 
+  /// Forwards a fresh per-symbol fills snapshot from
+  /// [FillRepository.watchFills] into [ChartState]. The repository
+  /// scopes its broadcast to the symbol the bloc subscribed with, so
+  /// no extra filter is needed here — but we still guard against a
+  /// late event that arrives after a symbol switch by short-
+  /// circuiting when [event.fills] mentions a different symbol.
+  void _onFillsUpdated(_FillsUpdated event, Emitter<ChartState> emit) {
+    if (event.fills.isNotEmpty &&
+        event.fills.first.symbol.toUpperCase() !=
+            state.symbol.toUpperCase()) {
+      return;
+    }
+    emit(state.copyWith(fills: event.fills));
+  }
+
   /// Appends a freshly-rolled mock event to [existing], trimming oldest
   /// entries past [_maxEvents]. Returns a new list.
   List<MarketEvent> _appendEvent(
@@ -604,11 +642,12 @@ class ChartBloc extends Bloc<ChartEvent, ChartState> {
   @override
   Future<void> close() async {
     await _subscription?.cancel();
+    await _fillSubscription?.cancel();
     _eventTimer?.cancel();
-    // The tick + historical repositories are owned by the app's
-    // RepositoryProviders, not by this bloc. We're route-scoped now —
-    // disposing them here would tear down the shared price feed for
-    // every other screen.
+    // The tick + historical + fill repositories are owned by the
+    // app's RepositoryProviders, not by this bloc. We're route-scoped
+    // now — disposing them here would tear down the shared price
+    // feed (and the persisted-fills cache) for every other screen.
     return super.close();
   }
 }
@@ -626,4 +665,14 @@ class _TickReceived extends ChartEvent {
 
   @override
   List<Object?> get props => <Object?>[tick];
+}
+
+/// Internal: the per-symbol fills stream emitted a new snapshot.
+class _FillsUpdated extends ChartEvent {
+  const _FillsUpdated(this.fills);
+
+  final List<Fill> fills;
+
+  @override
+  List<Object?> get props => <Object?>[fills];
 }

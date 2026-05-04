@@ -4,7 +4,9 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/clock/clock.dart';
 import '../../../core/diagnostics/mrm_trace.dart';
+import '../../../data/models/fill.dart';
 import '../../../data/models/trade_pair_snapshot.dart';
+import '../../../data/repositories/fill_repository.dart';
 import '../../../data/repositories/trade_repository.dart';
 import '../../../data/services/live_price_feed.dart';
 import 'trade_event.dart';
@@ -14,15 +16,19 @@ class TradeBloc extends Bloc<TradeEvent, TradeState> {
   TradeBloc({
     required TradeRepository tradeRepository,
     required LivePriceFeed priceFeed,
+    required FillRepository fillRepository,
     Clock clock = const SystemClock(),
+    String Function()? idGenerator,
   }) : _tradeRepository = tradeRepository,
        _priceFeed = priceFeed,
+       _fillRepository = fillRepository,
        _clock = clock,
+       _idGenerator = idGenerator ?? _defaultIdGenerator,
        super(const TradeState()) {
     on<TradeRequested>(_onRequested);
     on<TradeRangeChanged>(_onRangeChanged);
     on<TradeRefreshed>(_onRefreshed);
-    on<TradeSwapSubmitted>(_onSwap);
+    on<TradePurchaseSubmitted>(_onPurchase);
     on<_PricesUpdated>(_onPricesUpdated);
 
     _feedSub = _priceFeed.watchAll().listen(
@@ -32,7 +38,9 @@ class TradeBloc extends Bloc<TradeEvent, TradeState> {
 
   final TradeRepository _tradeRepository;
   final LivePriceFeed _priceFeed;
+  final FillRepository _fillRepository;
   final Clock _clock;
+  final String Function() _idGenerator;
   late final StreamSubscription<LivePriceUpdate> _feedSub;
 
   Future<void> _onRequested(
@@ -94,23 +102,56 @@ class TradeBloc extends Bloc<TradeEvent, TradeState> {
     }
   }
 
-  Future<void> _onSwap(
-    TradeSwapSubmitted event,
+  /// Handles a `Purchase {symbol}` press from `_PurchaseCard`.
+  ///
+  /// Acceptance is delegated to [TradeRepository.purchase]; on a
+  /// truthy result we record a [Fill] anchored at the purchased base
+  /// symbol's *current* live price (read from [LivePriceFeed]) so
+  /// the fill marker lands on the candle the user actually saw when
+  /// they tapped Purchase. A rejected or thrown purchase records no
+  /// fill — we don't want phantom markers for failed buys.
+  Future<void> _onPurchase(
+    TradePurchaseSubmitted event,
     Emitter<TradeState> emit,
   ) async {
-    emit(state.copyWith(isSubmittingSwap: true, clearSwapResult: true));
+    emit(state.copyWith(
+      isSubmittingPurchase: true,
+      clearPurchaseResult: true,
+    ));
     try {
-      final bool ok = await _tradeRepository.swap(
+      final bool ok = await _tradeRepository.purchase(
         fromSymbol: event.fromSymbol,
         toSymbol: event.toSymbol,
         amount: event.amount,
       );
-      emit(state.copyWith(isSubmittingSwap: false, lastSwapSucceeded: ok));
+      if (ok) {
+        final double price = _priceFeed.currentPrice(event.toSymbol);
+        // `currentPrice` returns 0 for unknown symbols; we still
+        // record the fill in that pathological case (so the user
+        // sees their action) but leave the marker at the floor of
+        // the chart instead of fabricating a synthetic price.
+        await _fillRepository.recordFill(
+          Fill(
+            id: _idGenerator(),
+            symbol: event.toSymbol.toUpperCase(),
+            side: FillSide.buy,
+            price: price,
+            sizeBase: event.amount,
+            costQuote: event.amount * price,
+            quoteSymbol: event.fromSymbol.toUpperCase(),
+            timestamp: _clock.now(),
+          ),
+        );
+      }
+      emit(state.copyWith(
+        isSubmittingPurchase: false,
+        lastPurchaseSucceeded: ok,
+      ));
     } catch (error) {
       emit(
         state.copyWith(
-          isSubmittingSwap: false,
-          lastSwapSucceeded: false,
+          isSubmittingPurchase: false,
+          lastPurchaseSucceeded: false,
           errorMessage: error.toString(),
         ),
       );
@@ -167,4 +208,16 @@ class TradeBloc extends Bloc<TradeEvent, TradeState> {
 
 class _PricesUpdated extends TradeEvent {
   const _PricesUpdated();
+}
+
+/// Default fill-id minter: epoch-millis + a 6-digit suffix derived
+/// from `Object.hashCode`, so two purchases issued in the same
+/// millisecond still get distinct ids without dragging in
+/// `package:uuid`. The bloc accepts an override so tests can pin
+/// deterministic ids.
+int _idCounter = 0;
+String _defaultIdGenerator() {
+  final int now = DateTime.now().microsecondsSinceEpoch;
+  final int salt = (++_idCounter) & 0xFFFFFF;
+  return 'fill-$now-${salt.toRadixString(36)}';
 }

@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../core/utils/formatters.dart';
 import '../../data/models/trade_pair_snapshot.dart';
+import '../../data/repositories/fill_repository.dart';
 import '../../data/repositories/historical_tick_repository.dart';
 import '../../data/repositories/tick_repository.dart';
 import '../../data/repositories/trade_repository.dart';
@@ -35,15 +36,15 @@ import '../widgets/chart/timeframe_selector.dart';
 ///   3. Timeframe selector (1s ... 1h)
 ///   4. Candlestick chart card with price-flash overlay, no-live-data
 ///      indicator, and chart minimap
-///   5. Swap card
+///   5. Purchase card (buy-only)
 ///
 /// A speed-dial debug panel floats in the bottom-right.
 class AssetDetailScreen extends StatelessWidget {
   const AssetDetailScreen({super.key, required this.symbol});
 
   /// Base symbol (e.g. `BTC`, `ETH`) the detail page should open on.
-  /// Drives both [TradeBloc] (for the pair snapshot + swap card) and
-  /// [ChartBloc] (for candle history + live ticks).
+  /// Drives both [TradeBloc] (for the pair snapshot + purchase card)
+  /// and [ChartBloc] (for candle history + live ticks).
   final String symbol;
 
   /// Convenience helper so call sites can do
@@ -67,12 +68,14 @@ class AssetDetailScreen extends StatelessWidget {
           create: (BuildContext ctx) => TradeBloc(
             tradeRepository: ctx.read<TradeRepository>(),
             priceFeed: ctx.read<LivePriceFeed>(),
+            fillRepository: ctx.read<FillRepository>(),
           )..add(TradeRequested(baseSymbol: symbol)),
         ),
         BlocProvider<ChartBloc>(
           create: (BuildContext ctx) => ChartBloc(
             repository: ctx.read<TickRepository>(),
             historicalRepository: ctx.read<HistoricalTickRepository>(),
+            fillRepository: ctx.read<FillRepository>(),
             initialSymbol: symbol,
           )..add(ChartStarted(symbol: symbol)),
         ),
@@ -95,17 +98,19 @@ class _AssetDetailView extends StatelessWidget {
     final LuminaTokens t = context.tokens;
     return BlocListener<TradeBloc, TradeState>(
       listenWhen: (TradeState previous, TradeState current) =>
-          previous.lastSwapSucceeded != current.lastSwapSucceeded &&
-          current.lastSwapSucceeded != null,
+          previous.lastPurchaseSucceeded != current.lastPurchaseSucceeded &&
+          current.lastPurchaseSucceeded != null,
       listener: (BuildContext context, TradeState state) {
-        final bool ok = state.lastSwapSucceeded ?? false;
+        final bool ok = state.lastPurchaseSucceeded ?? false;
+        final TradePairSnapshot? snapshot = state.snapshot;
+        final String message = ok
+            ? (snapshot != null
+                ? 'Purchased ${snapshot.base.symbol}'
+                : 'Purchase submitted!')
+            : 'Purchase failed.';
         ScaffoldMessenger.of(context)
           ..hideCurrentSnackBar()
-          ..showSnackBar(
-            SnackBar(
-              content: Text(ok ? 'Swap submitted!' : 'Swap failed.'),
-            ),
-          );
+          ..showSnackBar(SnackBar(content: Text(message)));
       },
       child: Scaffold(
         backgroundColor: t.colors.surfaceCanvas,
@@ -188,15 +193,17 @@ class _AssetDetailView extends StatelessWidget {
                     ),
                   ),
                   SizedBox(height: t.spacing.lg),
-                  _SwapCard(
+                  _PurchaseCard(
                     base: snapshot.base.symbol,
                     quote: snapshot.quote.symbol,
-                    isLoading: state.isSubmittingSwap,
-                    onSwap: (double amount) {
+                    isLoading: state.isSubmittingPurchase,
+                    onPurchase: (double amount) {
+                      // Buy-only flow: the user pays in `quote`
+                      // (e.g. USDT) and receives `base` (e.g. BTC).
                       context.read<TradeBloc>().add(
-                            TradeSwapSubmitted(
-                              fromSymbol: snapshot.base.symbol,
-                              toSymbol: snapshot.quote.symbol,
+                            TradePurchaseSubmitted(
+                              fromSymbol: snapshot.quote.symbol,
+                              toSymbol: snapshot.base.symbol,
                               amount: amount,
                             ),
                           );
@@ -279,24 +286,30 @@ class _PairHeader extends StatelessWidget {
   }
 }
 
-class _SwapCard extends StatefulWidget {
-  const _SwapCard({
+/// Buy-only purchase card on the asset detail screen.
+///
+/// One button → one direction: pay in [quote], receive [base]. The
+/// schema is intentionally generic enough that a future Sell button
+/// can be added next to this without forking the bloc / repository
+/// surface area.
+class _PurchaseCard extends StatefulWidget {
+  const _PurchaseCard({
     required this.base,
     required this.quote,
     required this.isLoading,
-    required this.onSwap,
+    required this.onPurchase,
   });
 
   final String base;
   final String quote;
   final bool isLoading;
-  final ValueChanged<double> onSwap;
+  final ValueChanged<double> onPurchase;
 
   @override
-  State<_SwapCard> createState() => _SwapCardState();
+  State<_PurchaseCard> createState() => _PurchaseCardState();
 }
 
-class _SwapCardState extends State<_SwapCard> {
+class _PurchaseCardState extends State<_PurchaseCard> {
   final TextEditingController _controller =
       TextEditingController(text: '0.10');
 
@@ -314,7 +327,7 @@ class _SwapCardState extends State<_SwapCard> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Text(
-            'Swap',
+            'Buy',
             style: t.typography.titleSm.copyWith(
               color: t.colors.contentPrimary,
             ),
@@ -322,18 +335,18 @@ class _SwapCardState extends State<_SwapCard> {
           SizedBox(height: t.spacing.sm + 2),
           LuminaTextField(
             controller: _controller,
-            label: 'Amount',
+            label: 'Amount in ${widget.base}',
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
             suffixText: widget.base,
           ),
           SizedBox(height: t.spacing.md),
           LuminaButton.primary(
-            label: 'SWAP ${widget.base} → ${widget.quote}',
+            label: 'PURCHASE ${widget.base}',
             expand: true,
             isLoading: widget.isLoading,
             onPressed: () {
               final double amount = double.tryParse(_controller.text) ?? 0.0;
-              widget.onSwap(amount);
+              widget.onPurchase(amount);
             },
           ),
         ],

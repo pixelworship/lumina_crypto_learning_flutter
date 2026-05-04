@@ -68,45 +68,45 @@ void main() {
     });
   });
 
-  group('MockTradeRepository.swap', () {
+  group('MockTradeRepository.purchase', () {
     test('forwards all arguments and returns the API result', () async {
       when(
-        () => api.submitSwap(
+        () => api.submitPurchase(
           fromSymbol: any(named: 'fromSymbol'),
           toSymbol: any(named: 'toSymbol'),
           amount: any(named: 'amount'),
         ),
       ).thenAnswer((_) async => true);
 
-      final bool ok = await repository.swap(
-        fromSymbol: 'BTC',
-        toSymbol: 'USDT',
+      final bool ok = await repository.purchase(
+        fromSymbol: 'USDT',
+        toSymbol: 'BTC',
         amount: 0.25,
       );
 
       expect(ok, isTrue);
       verify(
-        () => api.submitSwap(
-          fromSymbol: 'BTC',
-          toSymbol: 'USDT',
+        () => api.submitPurchase(
+          fromSymbol: 'USDT',
+          toSymbol: 'BTC',
           amount: 0.25,
         ),
       ).called(1);
       verifyNoMoreInteractions(api);
     });
 
-    test('returns false when the API rejects the swap', () async {
+    test('returns false when the API rejects the purchase', () async {
       when(
-        () => api.submitSwap(
+        () => api.submitPurchase(
           fromSymbol: any(named: 'fromSymbol'),
           toSymbol: any(named: 'toSymbol'),
           amount: any(named: 'amount'),
         ),
       ).thenAnswer((_) async => false);
 
-      final bool ok = await repository.swap(
-        fromSymbol: 'BTC',
-        toSymbol: 'USDT',
+      final bool ok = await repository.purchase(
+        fromSymbol: 'USDT',
+        toSymbol: 'BTC',
         amount: 0.25,
       );
 

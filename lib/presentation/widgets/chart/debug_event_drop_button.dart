@@ -18,7 +18,7 @@ class DebugEventDropButton extends StatelessWidget {
       heroTag: 'event-drop',
       tooltip: 'Drop random event on chart',
       backgroundColor: t.colors.accentSecondary,
-      foregroundColor: Colors.white,
+      foregroundColor: t.colors.contentInverse,
       onPressed: () => context
           .read<ChartBloc>()
           .add(const MarketEventSpawnRequested()),

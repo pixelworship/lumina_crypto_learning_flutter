@@ -259,7 +259,7 @@ class MockApiService implements ApiService {
   // ---------------------------------------------------------------------------
 
   @override
-  Future<bool> submitSwap({
+  Future<bool> submitPurchase({
     required String fromSymbol,
     required String toSymbol,
     required double amount,

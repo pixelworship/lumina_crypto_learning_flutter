@@ -25,4 +25,4 @@ class HomeQuickActionTriggered extends HomeEvent {
   List<Object?> get props => <Object?>[action];
 }
 
-enum HomeQuickAction { deposit, withdraw, swap }
+enum HomeQuickAction { deposit, withdraw, purchase }

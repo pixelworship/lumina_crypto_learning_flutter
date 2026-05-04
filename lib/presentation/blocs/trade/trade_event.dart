@@ -32,15 +32,27 @@ class TradeRefreshed extends TradeEvent {
   const TradeRefreshed();
 }
 
-class TradeSwapSubmitted extends TradeEvent {
-  const TradeSwapSubmitted({
+/// User pressed the "Purchase {symbol}" button.
+///
+/// Buy-only by design — quote currency is always paid out, base
+/// currency is always received. The schema keeps `fromSymbol` /
+/// `toSymbol` (rather than `baseSymbol` only) so a future Sell
+/// button can dispatch the same event with the symbols flipped
+/// without touching the bloc / repository signatures.
+class TradePurchaseSubmitted extends TradeEvent {
+  const TradePurchaseSubmitted({
     required this.fromSymbol,
     required this.toSymbol,
     required this.amount,
   });
 
+  /// Currency the user is paying with (e.g. `USDT`).
   final String fromSymbol;
+
+  /// Currency the user is buying (e.g. `BTC`).
   final String toSymbol;
+
+  /// Quantity of [toSymbol] to buy.
   final double amount;
 
   @override

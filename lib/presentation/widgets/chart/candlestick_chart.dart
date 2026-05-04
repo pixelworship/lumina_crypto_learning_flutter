@@ -41,14 +41,16 @@ class CandlestickChart extends StatelessWidget {
           prev.volumeOverlayEnabled != next.volumeOverlayEnabled ||
           prev.pauseStartedAt != next.pauseStartedAt ||
           prev.events != next.events ||
+          prev.fills != next.fills ||
           prev.isLoadingHistory != next.isLoadingHistory ||
           prev.isExtendingHistory != next.isExtendingHistory,
       builder: (BuildContext context, ChartState state) {
+        final LuminaTokens t = context.tokens;
         if (state.candles.isEmpty) {
-          return const Center(
+          return Center(
             child: Padding(
-              padding: EdgeInsets.all(24),
-              child: LuminaLoadingIndicator(),
+              padding: EdgeInsets.all(t.spacing.xxl),
+              child: const LuminaLoadingIndicator(),
             ),
           );
         }
@@ -63,19 +65,20 @@ class CandlestickChart extends StatelessWidget {
                 volumeOverlayEnabled: state.volumeOverlayEnabled,
                 pauseStartedAt: state.pauseStartedAt,
                 events: state.events,
+                fills: state.fills,
               ),
             ),
             if (state.isLoadingHistory)
-              const Positioned(
-                top: 8,
-                right: 8,
-                child: _ChartLoadingBadge(),
+              Positioned(
+                top: t.spacing.sm,
+                right: t.spacing.sm,
+                child: const _ChartLoadingBadge(),
               ),
             if (state.isExtendingHistory)
-              const Positioned(
-                top: 8,
-                left: 8,
-                child: _ChartLoadingBadge(),
+              Positioned(
+                top: t.spacing.sm,
+                left: t.spacing.sm,
+                child: const _ChartLoadingBadge(),
               ),
           ],
         );

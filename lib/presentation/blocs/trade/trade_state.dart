@@ -11,8 +11,8 @@ class TradeState extends Equatable {
     this.range = ChartRange.oneDay,
     this.baseSymbol = 'BTC',
     this.quoteSymbol = 'USDT',
-    this.isSubmittingSwap = false,
-    this.lastSwapSucceeded,
+    this.isSubmittingPurchase = false,
+    this.lastPurchaseSucceeded,
     this.errorMessage,
   });
 
@@ -21,8 +21,16 @@ class TradeState extends Equatable {
   final ChartRange range;
   final String baseSymbol;
   final String quoteSymbol;
-  final bool isSubmittingSwap;
-  final bool? lastSwapSucceeded;
+
+  /// True while a `TradePurchaseSubmitted` is in flight. Drives the
+  /// purchase button's spinner + disables re-submit.
+  final bool isSubmittingPurchase;
+
+  /// One-shot result of the most recent purchase, surfaced to the UI
+  /// as a snackbar. `null` between submissions; `true` on accept;
+  /// `false` on reject or thrown exception.
+  final bool? lastPurchaseSucceeded;
+
   final String? errorMessage;
 
   TradeState copyWith({
@@ -31,11 +39,11 @@ class TradeState extends Equatable {
     ChartRange? range,
     String? baseSymbol,
     String? quoteSymbol,
-    bool? isSubmittingSwap,
-    bool? lastSwapSucceeded,
+    bool? isSubmittingPurchase,
+    bool? lastPurchaseSucceeded,
     String? errorMessage,
     bool clearError = false,
-    bool clearSwapResult = false,
+    bool clearPurchaseResult = false,
   }) {
     return TradeState(
       status: status ?? this.status,
@@ -43,10 +51,11 @@ class TradeState extends Equatable {
       range: range ?? this.range,
       baseSymbol: baseSymbol ?? this.baseSymbol,
       quoteSymbol: quoteSymbol ?? this.quoteSymbol,
-      isSubmittingSwap: isSubmittingSwap ?? this.isSubmittingSwap,
-      lastSwapSucceeded: clearSwapResult
+      isSubmittingPurchase:
+          isSubmittingPurchase ?? this.isSubmittingPurchase,
+      lastPurchaseSucceeded: clearPurchaseResult
           ? null
-          : (lastSwapSucceeded ?? this.lastSwapSucceeded),
+          : (lastPurchaseSucceeded ?? this.lastPurchaseSucceeded),
       errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
     );
   }
@@ -58,8 +67,8 @@ class TradeState extends Equatable {
     range,
     baseSymbol,
     quoteSymbol,
-    isSubmittingSwap,
-    lastSwapSucceeded,
+    isSubmittingPurchase,
+    lastPurchaseSucceeded,
     errorMessage,
   ];
 }

@@ -61,10 +61,11 @@ class HomeScreen extends StatelessWidget {
                   HomeQuickAction.withdraw,
                   'Withdrawal submitted',
                 ),
-                onSwap: () {
-                  // The dedicated trade tab is gone — swaps live on
-                  // each asset's detail page. Bounce the user to the
-                  // markets list so they can pick an asset to swap.
+                onPurchase: () {
+                  // The dedicated trade tab is gone — purchases live
+                  // on each asset's detail page. Bounce the user to
+                  // the markets list so they can pick an asset to
+                  // buy.
                   context.read<NavigationCubit>().select(AppTab.markets);
                 },
               ),

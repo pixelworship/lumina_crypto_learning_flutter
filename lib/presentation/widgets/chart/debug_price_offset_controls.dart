@@ -16,6 +16,7 @@ class DebugPriceOffsetControls extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final LuminaTokens t = context.tokens;
     return BlocSelector<ChartBloc, ChartState, double>(
       selector: (ChartState state) => state.priceOffset,
       builder: (BuildContext context, double offset) {
@@ -30,9 +31,9 @@ class DebugPriceOffsetControls extends StatelessWidget {
                   bloc.add(PriceOffsetChanged(offset - step)),
               child: const Icon(Icons.trending_down),
             ),
-            const SizedBox(width: 8),
+            SizedBox(width: t.spacing.sm),
             _OffsetReadout(offset: offset),
-            const SizedBox(width: 8),
+            SizedBox(width: t.spacing.sm),
             FloatingActionButton.small(
               heroTag: 'price-offset-up',
               tooltip: 'Spike price',

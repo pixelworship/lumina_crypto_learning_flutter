@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 
 import '../../../data/models/candle.dart';
+import '../../../data/models/fill.dart';
 import '../../../data/models/market_event.dart';
 import '../../../data/models/timeframe.dart';
 
@@ -11,6 +12,7 @@ class ChartState extends Equatable {
     required this.timeframe,
     required this.candles,
     required this.events,
+    required this.fills,
     required this.isStreaming,
     required this.isPaused,
     required this.tickSpeed,
@@ -30,6 +32,7 @@ class ChartState extends Equatable {
     timeframe: Timeframe.m1,
     candles: const <Candle>[],
     events: const <MarketEvent>[],
+    fills: const <Fill>[],
     isStreaming: false,
     isPaused: false,
     tickSpeed: 1.0,
@@ -56,6 +59,14 @@ class ChartState extends Equatable {
   /// Discrete real-world events (earnings, news, tweets, ...) overlaid on
   /// the timeline. Sorted ascending by `MarketEvent.timestamp`.
   final List<MarketEvent> events;
+
+  /// User trade executions (purchases) overlaid on the timeline as
+  /// tap-to-inspect markers anchored at the fill's [Fill.price].
+  /// Scoped to the active [symbol]; cleared on symbol switch and
+  /// re-hydrated by the bloc from [FillRepository]. Sorted ascending
+  /// by `Fill.timestamp`.
+  final List<Fill> fills;
+
   final bool isStreaming;
 
   /// True while the live tick subscription is paused (debug "wifi out").
@@ -109,6 +120,7 @@ class ChartState extends Equatable {
     Timeframe? timeframe,
     List<Candle>? candles,
     List<MarketEvent>? events,
+    List<Fill>? fills,
     bool? isStreaming,
     bool? isPaused,
     double? tickSpeed,
@@ -129,6 +141,7 @@ class ChartState extends Equatable {
       timeframe: timeframe ?? this.timeframe,
       candles: candles ?? this.candles,
       events: events ?? this.events,
+      fills: fills ?? this.fills,
       isStreaming: isStreaming ?? this.isStreaming,
       isPaused: isPaused ?? this.isPaused,
       tickSpeed: tickSpeed ?? this.tickSpeed,
@@ -153,6 +166,7 @@ class ChartState extends Equatable {
     timeframe,
     candles,
     events,
+    fills,
     isStreaming,
     isPaused,
     tickSpeed,

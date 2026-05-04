@@ -13,6 +13,7 @@ class DebugSpeedControls extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final LuminaTokens t = context.tokens;
     return BlocSelector<ChartBloc, ChartState, double>(
       selector: (ChartState state) => state.tickSpeed,
       builder: (BuildContext context, double speed) {
@@ -26,9 +27,9 @@ class DebugSpeedControls extends StatelessWidget {
               onPressed: () => bloc.add(TickSpeedChanged(speed / 2)),
               child: const Icon(Icons.remove),
             ),
-            const SizedBox(width: 8),
+            SizedBox(width: t.spacing.sm),
             _SpeedReadout(speed: speed),
-            const SizedBox(width: 8),
+            SizedBox(width: t.spacing.sm),
             FloatingActionButton.small(
               heroTag: 'tick-speed-up',
               tooltip: 'Speed up ticks',

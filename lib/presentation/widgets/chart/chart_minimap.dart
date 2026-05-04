@@ -35,6 +35,7 @@ class _ChartMinimapState extends State<ChartMinimap> {
 
   @override
   Widget build(BuildContext context) {
+    final LuminaTokens t = context.tokens;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -44,12 +45,12 @@ class _ChartMinimapState extends State<ChartMinimap> {
         // a zero-size box — AnimatedSize tweens the height without
         // translating the icon at all.
         AnimatedSize(
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOutCubic,
+          duration: t.motion.medium,
+          curve: t.motion.emphasizedEase,
           alignment: Alignment.bottomLeft,
           child: _visible
               ? Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
+                  padding: EdgeInsets.only(bottom: t.spacing.xs),
                   child: _buildChartPanel(),
                 )
               : const SizedBox.shrink(),
@@ -81,7 +82,12 @@ class _ChartMinimapState extends State<ChartMinimap> {
             width: _expandedSize.width,
             height: _expandedSize.height,
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(6, 8, 6, 6),
+              padding: EdgeInsets.fromLTRB(
+                t.spacing.xs + 2,
+                t.spacing.sm,
+                t.spacing.xs + 2,
+                t.spacing.xs + 2,
+              ),
               child: ClipRRect(
                 borderRadius: t.radii.xsAll,
                 child: CustomPaint(
@@ -108,7 +114,7 @@ class _ChartMinimapState extends State<ChartMinimap> {
         customBorder: const CircleBorder(),
         onTap: () => setState(() => _visible = !_visible),
         child: Padding(
-          padding: const EdgeInsets.all(8),
+          padding: EdgeInsets.all(t.spacing.sm),
           child: Icon(
             _visible ? Icons.close : Icons.show_chart,
             size: 18,

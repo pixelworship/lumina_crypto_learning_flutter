@@ -54,7 +54,7 @@ class PortfolioHoldingCard extends StatelessWidget {
                       fontSize: 15,
                     ),
                   ),
-                  const SizedBox(height: 2),
+                  SizedBox(height: t.spacing.xxs),
                   Text(
                     'Cost: ${Formatters.compactCurrency(holding.costBasis)}',
                     style: t.typography.bodySm.copyWith(

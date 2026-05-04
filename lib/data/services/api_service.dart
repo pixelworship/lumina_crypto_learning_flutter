@@ -44,8 +44,11 @@ abstract class ApiService {
     required ChartRange range,
   });
 
-  /// `POST /trade/swap` — submits a swap; returns whether it was accepted.
-  Future<bool> submitSwap({
+  /// `POST /trade/purchase` — submits a buy; returns whether it was
+  /// accepted. The schema retains `fromSymbol` / `toSymbol` (instead
+  /// of `baseSymbol`-only) so a future Sell button can reuse this
+  /// endpoint with the symbols flipped.
+  Future<bool> submitPurchase({
     required String fromSymbol,
     required String toSymbol,
     required double amount,

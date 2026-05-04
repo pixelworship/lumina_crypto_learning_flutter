@@ -230,11 +230,11 @@ void main() {
     });
   });
 
-  group('MockApiService.submitSwap', () {
-    test('returns true for a valid swap', () async {
-      final bool ok = await api.submitSwap(
-        fromSymbol: 'BTC',
-        toSymbol: 'USDT',
+  group('MockApiService.submitPurchase', () {
+    test('returns true for a valid purchase', () async {
+      final bool ok = await api.submitPurchase(
+        fromSymbol: 'USDT',
+        toSymbol: 'BTC',
         amount: 0.5,
       );
       expect(ok, isTrue);
@@ -242,22 +242,38 @@ void main() {
 
     test('returns false for non-positive amounts', () async {
       expect(
-        await api.submitSwap(fromSymbol: 'BTC', toSymbol: 'USDT', amount: 0),
+        await api.submitPurchase(
+          fromSymbol: 'USDT',
+          toSymbol: 'BTC',
+          amount: 0,
+        ),
         isFalse,
       );
       expect(
-        await api.submitSwap(fromSymbol: 'BTC', toSymbol: 'USDT', amount: -1),
+        await api.submitPurchase(
+          fromSymbol: 'USDT',
+          toSymbol: 'BTC',
+          amount: -1,
+        ),
         isFalse,
       );
     });
 
     test('returns false when either symbol is unknown', () async {
       expect(
-        await api.submitSwap(fromSymbol: 'XYZ', toSymbol: 'USDT', amount: 0.5),
+        await api.submitPurchase(
+          fromSymbol: 'XYZ',
+          toSymbol: 'BTC',
+          amount: 0.5,
+        ),
         isFalse,
       );
       expect(
-        await api.submitSwap(fromSymbol: 'BTC', toSymbol: 'XYZ', amount: 0.5),
+        await api.submitPurchase(
+          fromSymbol: 'USDT',
+          toSymbol: 'XYZ',
+          amount: 0.5,
+        ),
         isFalse,
       );
     });

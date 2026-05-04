@@ -1,5 +1,7 @@
 import 'package:bloc_test/bloc_test.dart';
+import 'package:flutter_demo/data/models/fill.dart';
 import 'package:flutter_demo/data/models/trade_pair_snapshot.dart';
+import 'package:flutter_demo/data/repositories/fill_repository.dart';
 import 'package:flutter_demo/data/repositories/trade_repository.dart';
 import 'package:flutter_demo/data/services/asset_catalog.dart';
 import 'package:flutter_demo/data/services/live_price_feed.dart';
@@ -25,19 +27,26 @@ void main() {
 
   late _MockTradeRepository repository;
   late LivePriceFeed priceFeed;
+  late InMemoryFillRepository fillRepository;
+  int idCounter = 0;
 
   setUp(() {
     repository = _MockTradeRepository();
     priceFeed = _silentFeed();
+    fillRepository = InMemoryFillRepository();
+    idCounter = 0;
   });
 
   tearDown(() async {
     await priceFeed.dispose();
+    await fillRepository.dispose();
   });
 
   TradeBloc buildBloc() => TradeBloc(
     tradeRepository: repository,
     priceFeed: priceFeed,
+    fillRepository: fillRepository,
+    idGenerator: () => 'test-fill-${idCounter++}',
   );
 
   group('TradeBloc.TradeRequested', () {
@@ -148,12 +157,12 @@ void main() {
     );
   });
 
-  group('TradeBloc.TradeSwapSubmitted', () {
+  group('TradeBloc.TradePurchaseSubmitted', () {
     blocTest<TradeBloc, TradeState>(
-      'goes through submitting → success with lastSwapSucceeded=true',
+      'goes through submitting → success with lastPurchaseSucceeded=true',
       setUp: () {
         when(
-          () => repository.swap(
+          () => repository.purchase(
             fromSymbol: any(named: 'fromSymbol'),
             toSymbol: any(named: 'toSymbol'),
             amount: any(named: 'amount'),
@@ -162,27 +171,29 @@ void main() {
       },
       build: buildBloc,
       act: (TradeBloc bloc) => bloc.add(
-        const TradeSwapSubmitted(
-          fromSymbol: 'BTC',
-          toSymbol: 'USDT',
+        const TradePurchaseSubmitted(
+          fromSymbol: 'USDT',
+          toSymbol: 'BTC',
           amount: 0.1,
         ),
       ),
       expect: () => <Matcher>[
         predicate<TradeState>(
           (TradeState s) =>
-              s.isSubmittingSwap == true && s.lastSwapSucceeded == null,
+              s.isSubmittingPurchase == true &&
+              s.lastPurchaseSucceeded == null,
         ),
         predicate<TradeState>(
           (TradeState s) =>
-              s.isSubmittingSwap == false && s.lastSwapSucceeded == true,
+              s.isSubmittingPurchase == false &&
+              s.lastPurchaseSucceeded == true,
         ),
       ],
       verify: (_) {
         verify(
-          () => repository.swap(
-            fromSymbol: 'BTC',
-            toSymbol: 'USDT',
+          () => repository.purchase(
+            fromSymbol: 'USDT',
+            toSymbol: 'BTC',
             amount: 0.1,
           ),
         ).called(1);
@@ -190,10 +201,40 @@ void main() {
     );
 
     blocTest<TradeBloc, TradeState>(
-      'lastSwapSucceeded=false when repository rejects the swap',
+      'records exactly one Fill on a successful purchase',
       setUp: () {
         when(
-          () => repository.swap(
+          () => repository.purchase(
+            fromSymbol: any(named: 'fromSymbol'),
+            toSymbol: any(named: 'toSymbol'),
+            amount: any(named: 'amount'),
+          ),
+        ).thenAnswer((_) async => true);
+      },
+      build: buildBloc,
+      act: (TradeBloc bloc) => bloc.add(
+        const TradePurchaseSubmitted(
+          fromSymbol: 'USDT',
+          toSymbol: 'BTC',
+          amount: 0.1,
+        ),
+      ),
+      verify: (_) async {
+        final List<Fill> fills = await fillRepository.getFills('BTC');
+        expect(fills, hasLength(1));
+        expect(fills.single.symbol, 'BTC');
+        expect(fills.single.side, FillSide.buy);
+        expect(fills.single.sizeBase, 0.1);
+        expect(fills.single.quoteSymbol, 'USDT');
+        expect(fills.single.id, 'test-fill-0');
+      },
+    );
+
+    blocTest<TradeBloc, TradeState>(
+      'lastPurchaseSucceeded=false when repository rejects, no fill recorded',
+      setUp: () {
+        when(
+          () => repository.purchase(
             fromSymbol: any(named: 'fromSymbol'),
             toSymbol: any(named: 'toSymbol'),
             amount: any(named: 'amount'),
@@ -202,26 +243,35 @@ void main() {
       },
       build: buildBloc,
       act: (TradeBloc bloc) => bloc.add(
-        const TradeSwapSubmitted(
-          fromSymbol: 'BTC',
-          toSymbol: 'USDT',
+        const TradePurchaseSubmitted(
+          fromSymbol: 'USDT',
+          toSymbol: 'BTC',
           amount: 0.1,
         ),
       ),
       expect: () => <Matcher>[
-        predicate<TradeState>((TradeState s) => s.isSubmittingSwap == true),
+        predicate<TradeState>(
+          (TradeState s) => s.isSubmittingPurchase == true,
+        ),
         predicate<TradeState>(
           (TradeState s) =>
-              s.isSubmittingSwap == false && s.lastSwapSucceeded == false,
+              s.isSubmittingPurchase == false &&
+              s.lastPurchaseSucceeded == false,
         ),
       ],
+      verify: (_) async {
+        final List<Fill> fills = await fillRepository.getFills('BTC');
+        expect(fills, isEmpty,
+            reason: 'rejected purchases must not record a fill');
+      },
     );
 
     blocTest<TradeBloc, TradeState>(
-      'sets lastSwapSucceeded=false and surfaces error when repo throws',
+      'lastPurchaseSucceeded=false + error surfaced when repo throws, '
+      'no fill recorded',
       setUp: () {
         when(
-          () => repository.swap(
+          () => repository.purchase(
             fromSymbol: any(named: 'fromSymbol'),
             toSymbol: any(named: 'toSymbol'),
             amount: any(named: 'amount'),
@@ -230,21 +280,28 @@ void main() {
       },
       build: buildBloc,
       act: (TradeBloc bloc) => bloc.add(
-        const TradeSwapSubmitted(
-          fromSymbol: 'BTC',
-          toSymbol: 'USDT',
+        const TradePurchaseSubmitted(
+          fromSymbol: 'USDT',
+          toSymbol: 'BTC',
           amount: 0.1,
         ),
       ),
       expect: () => <Matcher>[
-        predicate<TradeState>((TradeState s) => s.isSubmittingSwap == true),
+        predicate<TradeState>(
+          (TradeState s) => s.isSubmittingPurchase == true,
+        ),
         predicate<TradeState>(
           (TradeState s) =>
-              s.isSubmittingSwap == false &&
-              s.lastSwapSucceeded == false &&
+              s.isSubmittingPurchase == false &&
+              s.lastPurchaseSucceeded == false &&
               s.errorMessage != null,
         ),
       ],
+      verify: (_) async {
+        final List<Fill> fills = await fillRepository.getFills('BTC');
+        expect(fills, isEmpty,
+            reason: 'thrown purchases must not record a fill');
+      },
     );
   });
 

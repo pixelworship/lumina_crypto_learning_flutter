@@ -98,7 +98,7 @@ class _ProfileHero extends StatelessWidget {
                     color: t.colors.contentPrimary,
                   ),
                 ),
-                const SizedBox(height: 2),
+                SizedBox(height: t.spacing.xxs),
                 Text(
                   'user@lumina.io',
                   style: t.typography.bodySm.copyWith(
@@ -154,13 +154,11 @@ class _ThemeToggleCard extends StatelessWidget {
                   children: <Widget>[
                     Text(
                       'Appearance',
-                      style: t.typography.bodyLg.copyWith(
+                      style: t.typography.titleSm.copyWith(
                         color: t.colors.contentPrimary,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 15,
                       ),
                     ),
-                    const SizedBox(height: 2),
+                    SizedBox(height: t.spacing.xxs),
                     Text(
                       isDark ? 'Dark mode' : 'Light mode',
                       style: t.typography.bodySm.copyWith(

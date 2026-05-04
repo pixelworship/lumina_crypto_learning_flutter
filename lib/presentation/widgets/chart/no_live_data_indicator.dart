@@ -13,11 +13,12 @@ class NoLiveDataIndicator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final LuminaTokens t = context.tokens;
     return BlocSelector<ChartBloc, ChartState, bool>(
       selector: (ChartState state) => state.isPaused,
       builder: (BuildContext context, bool paused) {
         return AnimatedSwitcher(
-          duration: const Duration(milliseconds: 200),
+          duration: t.motion.medium,
           transitionBuilder: (Widget child, Animation<double> animation) =>
               FadeTransition(
             opacity: animation,
@@ -55,9 +56,9 @@ class _Box extends StatelessWidget {
             width: 1.5,
           ),
         ),
-        child: const Icon(
+        child: Icon(
           Icons.error_outline,
-          color: Colors.white,
+          color: t.colors.contentInverse,
           size: 24,
         ),
       ),

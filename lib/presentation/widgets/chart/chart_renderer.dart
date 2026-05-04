@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../data/models/candle.dart';
+import '../../../data/models/fill.dart';
 import '../../../data/models/market_event.dart';
 import '../../../data/models/timeframe.dart';
 import '../../../design_system/lumina_ui.dart';
@@ -15,6 +16,7 @@ import '../../blocs/chart/chart_event.dart';
 import 'animated_candles.dart';
 import 'animated_volume_overlay.dart';
 import 'event_marker_overlay.dart';
+import 'fill_marker_overlay.dart';
 import 'ohlc_tooltip.dart';
 import 'painters/candle_painter.dart';
 import 'painters/chart_axes_painter.dart';
@@ -35,6 +37,7 @@ class ChartRenderer extends StatelessWidget {
     required this.candles,
     required this.timeframe,
     required this.events,
+    required this.fills,
     this.glowEnabled = true,
     this.autoScaleEnabled = true,
     this.volumeOverlayEnabled = false,
@@ -59,6 +62,10 @@ class ChartRenderer extends StatelessWidget {
   /// Discrete real-world events to overlay on the timeline.
   final List<MarketEvent> events;
 
+  /// User trade executions for the active symbol. Surfaced as
+  /// tap-to-inspect markers anchored at each fill's price.
+  final List<Fill> fills;
+
   @override
   Widget build(BuildContext context) {
     return AnimatedCandles(
@@ -72,6 +79,7 @@ class ChartRenderer extends StatelessWidget {
         volumeOverlayEnabled: volumeOverlayEnabled,
         pauseStartedAt: pauseStartedAt,
         events: events,
+        fills: fills,
       ),
     );
   }
@@ -86,6 +94,7 @@ class _CustomChart extends StatefulWidget {
     required this.volumeOverlayEnabled,
     required this.pauseStartedAt,
     required this.events,
+    required this.fills,
   });
 
   final List<Candle> candles;
@@ -95,6 +104,7 @@ class _CustomChart extends StatefulWidget {
   final bool volumeOverlayEnabled;
   final DateTime? pauseStartedAt;
   final List<MarketEvent> events;
+  final List<Fill> fills;
 
   @override
   State<_CustomChart> createState() => _CustomChartState();
@@ -219,7 +229,6 @@ class _CustomChartState extends State<_CustomChart>
     }
     final TextStyle labelStyle = t.typography.labelSm.copyWith(
       color: t.colors.contentTertiary,
-      fontSize: 10,
       letterSpacing: 0.4,
     );
 
@@ -407,6 +416,24 @@ class _CustomChartState extends State<_CustomChart>
                       firstVisibleIndex: firstVisibleIndex,
                       candleWidth: _candleWidth,
                       plotArea: plotArea,
+                    ),
+                  ),
+                // Fill markers paint over the candles + event row but
+                // below the crosshair tooltip, so a tap on a fill
+                // doesn't get swallowed by the tooltip's invisible
+                // hit region (the tooltip widget is conditionally
+                // mounted further down only when there's an active
+                // long-press).
+                if (widget.fills.isNotEmpty && priceRange != null)
+                  Positioned.fill(
+                    child: FillMarkerOverlay(
+                      fills: widget.fills,
+                      candles: widget.candles,
+                      timeframe: widget.timeframe,
+                      firstVisibleIndex: firstVisibleIndex,
+                      candleWidth: _candleWidth,
+                      plotArea: plotArea,
+                      priceRange: priceRange,
                     ),
                   ),
                 if (touchedCandle != null && _crosshair != null)
@@ -657,13 +684,14 @@ class _LiveButtonState extends State<_LiveButton>
   @override
   Widget build(BuildContext context) {
     final LuminaTokens t = context.tokens;
+    final BorderRadius pillRadius = t.radii.xlAll;
     return AnimatedBuilder(
       animation: _ctrl,
       builder: (BuildContext context, Widget? child) {
         final double tValue = Curves.easeInOut.transform(_ctrl.value);
         return Container(
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: pillRadius,
             boxShadow: <BoxShadow>[
               BoxShadow(
                 color: t.colors.chartCandleBullish.withValues(
@@ -679,27 +707,32 @@ class _LiveButtonState extends State<_LiveButton>
       },
       child: Material(
         color: t.colors.chartCandleBullish,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: pillRadius,
         elevation: 4,
         child: InkWell(
           onTap: widget.onTap,
-          borderRadius: BorderRadius.circular(20),
-          child: const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          borderRadius: pillRadius,
+          child: Padding(
+            padding: EdgeInsets.symmetric(
+              horizontal: t.spacing.md + 2,
+              vertical: t.spacing.sm,
+            ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
                 Text(
                   'LIVE',
-                  style: TextStyle(
-                    color: Colors.white,
+                  style: t.typography.labelMd.copyWith(
+                    color: t.colors.contentInverse,
                     fontWeight: FontWeight.w800,
-                    letterSpacing: 1.2,
-                    fontSize: 12,
                   ),
                 ),
-                SizedBox(width: 6),
-                Icon(Icons.chevron_right, color: Colors.white, size: 18),
+                SizedBox(width: t.spacing.xs + 2),
+                Icon(
+                  Icons.chevron_right,
+                  color: t.colors.contentInverse,
+                  size: 18,
+                ),
               ],
             ),
           ),

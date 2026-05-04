@@ -197,6 +197,7 @@ class _ClusterBadge extends StatelessWidget {
   /// event in chronological order (newest first). Returning the
   /// selected event lets the caller pop a detail dialog for it.
   Future<MarketEvent?> _showClusterMenu(BuildContext context) async {
+    final LuminaTokens t = context.tokens;
     final RenderBox? box = context.findRenderObject() as RenderBox?;
     final RenderBox? overlay =
         Overlay.of(context).context.findRenderObject() as RenderBox?;
@@ -224,9 +225,9 @@ class _ClusterBadge extends StatelessWidget {
         for (final MarketEvent event in sorted)
           PopupMenuItem<MarketEvent>(
             value: event,
-            padding: const EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: 6,
+            padding: EdgeInsets.symmetric(
+              horizontal: t.spacing.md,
+              vertical: t.spacing.xs + 2,
             ),
             child: _EventMenuItem(event: event),
           ),
@@ -252,28 +253,21 @@ class _MoreBadge extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(4),
+        borderRadius: BorderRadius.all(t.radii.xs),
         child: Container(
-          width: 22,
-          height: 22,
+          width: EventMarkerOverlay._badgeSize,
+          height: EventMarkerOverlay._badgeSize,
           decoration: BoxDecoration(
             color: t.colors.surfaceRaised,
-            borderRadius: BorderRadius.circular(4),
+            borderRadius: BorderRadius.all(t.radii.xs),
             border: Border.all(color: t.colors.borderDefault),
-            boxShadow: <BoxShadow>[
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.35),
-                blurRadius: 4,
-                offset: const Offset(0, 1),
-              ),
-            ],
+            boxShadow: t.elevation.sm,
           ),
           alignment: Alignment.center,
           child: Text(
             '+$count',
             style: t.typography.labelSm.copyWith(
               color: t.colors.contentPrimary,
-              fontSize: 9,
               letterSpacing: 0,
               height: 1.0,
             ),
@@ -322,11 +316,12 @@ class _EventBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final LuminaTokens t = context.tokens;
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(4),
+        borderRadius: BorderRadius.all(t.radii.xs),
         child: Tooltip(
           message: event.title,
           waitDuration: const Duration(milliseconds: 400),
@@ -350,32 +345,32 @@ class _BadgeGlyph extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final LuminaTokens t = context.tokens;
     final IconData? icon = event.icon;
+    // Event glyphs sit on saturated brand-event fills (red, green,
+    // blue, etc.) defined in the market event catalog. White content
+    // is intentional in both themes — `contentInverse` would invert
+    // to dark in dark mode and become unreadable on those dark fills.
+    const Color glyphColor = Colors.white;
     return Container(
       width: size,
       height: size,
       decoration: BoxDecoration(
         color: event.color,
-        borderRadius: BorderRadius.circular(4),
+        borderRadius: BorderRadius.all(t.radii.xs),
         border: Border.all(
-          color: Colors.white.withValues(alpha: 0.85),
+          color: glyphColor.withValues(alpha: 0.85),
           width: 1,
         ),
-        boxShadow: <BoxShadow>[
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.35),
-            blurRadius: 4,
-            offset: const Offset(0, 1),
-          ),
-        ],
+        boxShadow: t.elevation.sm,
       ),
       alignment: Alignment.center,
       child: icon != null
-          ? Icon(icon, size: fontSize + 2, color: Colors.white)
+          ? Icon(icon, size: fontSize + 2, color: glyphColor)
           : Text(
               event.label,
-              style: TextStyle(
-                color: Colors.white,
+              style: t.typography.labelSm.copyWith(
+                color: glyphColor,
                 fontSize: fontSize,
                 fontWeight: FontWeight.w800,
                 letterSpacing: 0.5,

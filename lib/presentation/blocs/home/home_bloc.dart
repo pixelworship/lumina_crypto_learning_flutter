@@ -95,7 +95,10 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       case HomeQuickAction.withdraw:
         await _portfolioRepository.withdraw(0);
         break;
-      case HomeQuickAction.swap:
+      case HomeQuickAction.purchase:
+        // No-op at the bloc layer — the screen layer translates this
+        // into a navigation push to the markets list, where the user
+        // picks an asset to purchase from.
         break;
     }
   }

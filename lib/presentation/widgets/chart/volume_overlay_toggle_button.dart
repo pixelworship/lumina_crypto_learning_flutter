@@ -24,7 +24,7 @@ class VolumeOverlayToggleButton extends StatelessWidget {
           backgroundColor:
               enabled ? t.colors.chartVolumeArea : t.colors.surfaceRaised,
           foregroundColor:
-              enabled ? Colors.white : t.colors.contentPrimary,
+              enabled ? t.colors.contentInverse : t.colors.contentPrimary,
           onPressed: () =>
               context.read<ChartBloc>().add(const VolumeOverlayToggled()),
           child: Icon(enabled ? Icons.bar_chart : Icons.bar_chart_outlined),
