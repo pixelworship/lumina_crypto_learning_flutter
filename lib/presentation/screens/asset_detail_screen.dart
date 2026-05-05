@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../core/utils/formatters.dart';
 import '../../data/models/trade_pair_snapshot.dart';
+import '../../data/repositories/chart_events_repository.dart';
 import '../../data/repositories/fill_repository.dart';
 import '../../data/repositories/historical_tick_repository.dart';
 import '../../data/repositories/tick_repository.dart';
@@ -76,6 +77,7 @@ class AssetDetailScreen extends StatelessWidget {
             repository: ctx.read<TickRepository>(),
             historicalRepository: ctx.read<HistoricalTickRepository>(),
             fillRepository: ctx.read<FillRepository>(),
+            eventsRepository: ctx.read<ChartEventsRepository>(),
             initialSymbol: symbol,
           )..add(ChartStarted(symbol: symbol)),
         ),

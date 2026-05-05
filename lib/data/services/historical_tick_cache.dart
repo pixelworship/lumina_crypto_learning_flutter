@@ -192,11 +192,58 @@ class _SymbolCache {
 
   void add({required List<Tick> ticks, required TickRange range}) {
     if (ticks.isNotEmpty) {
-      _ticks.addAll(ticks);
-      _ticks.sort((Tick a, Tick b) => a.timestamp.compareTo(b.timestamp));
+      // Both `_ticks` and `ticks` are already sorted ascending by
+      // timestamp (the cache invariant + the api's contract). A
+      // linear two-way merge is O(n + m); the previous addAll+sort
+      // was O((n + m) log(n + m)) — measurably worse on the main
+      // thread once a symbol has accumulated a few warm pages
+      // (~30k+ ticks per page). Doing this on the main thread is
+      // fine at O(n) since memory bandwidth, not comparison count,
+      // is the bottleneck for sorted-list merges.
+      //
+      // Compute the merged list BEFORE touching `_ticks` — the
+      // cascade `..clear()..addAll(_mergeSorted(_ticks, ticks))`
+      // would evaluate `clear` first and then call `_mergeSorted`
+      // against an already-empty `_ticks`, dropping every existing
+      // entry.
+      final List<Tick> merged = _mergeSorted(_ticks, ticks);
+      _ticks
+        ..clear()
+        ..addAll(merged);
     }
     _coveredRanges.add(range);
     _mergeRanges();
+  }
+
+  /// Two-way merge of pre-sorted tick lists (ascending by timestamp).
+  /// Stable: ticks sharing a timestamp keep their `a`-before-`b`
+  /// relative order, matching what `List.sort` would do for our
+  /// equality-by-timestamp comparator.
+  static List<Tick> _mergeSorted(List<Tick> a, List<Tick> b) {
+    if (a.isEmpty) return List<Tick>.from(b);
+    if (b.isEmpty) return List<Tick>.from(a);
+    final List<Tick> merged = List<Tick>.filled(
+      a.length + b.length,
+      a.first,
+      growable: true,
+    );
+    int i = 0;
+    int j = 0;
+    int k = 0;
+    while (i < a.length && j < b.length) {
+      if (b[j].timestamp.isBefore(a[i].timestamp)) {
+        merged[k++] = b[j++];
+      } else {
+        merged[k++] = a[i++];
+      }
+    }
+    while (i < a.length) {
+      merged[k++] = a[i++];
+    }
+    while (j < b.length) {
+      merged[k++] = b[j++];
+    }
+    return merged;
   }
 
   /// Trims the cache so the total covered span doesn't exceed

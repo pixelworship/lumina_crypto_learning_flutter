@@ -315,4 +315,69 @@ void main() {
       bloc.close();
     });
   });
+
+  group('TradeBloc debug price offset propagation', () {
+    test(
+      'live price absorbs the dial; the 24h anchor stays put so the '
+      'change pill reflects the spike (real-world pump semantics)',
+      () async {
+        when(
+          () => repository.getPair(
+            baseSymbol: any(named: 'baseSymbol'),
+            quoteSymbol: any(named: 'quoteSymbol'),
+            range: any(named: 'range'),
+          ),
+        ).thenAnswer((_) async => TestAssets.tradePair);
+
+        final TradeBloc bloc = buildBloc();
+        addTearDown(bloc.close);
+
+        bloc.add(
+          const TradeRequested(baseSymbol: 'BTC', quoteSymbol: 'USDT'),
+        );
+        await bloc.stream.firstWhere(
+          (TradeState s) => s.status == TradeStatus.success,
+        );
+
+        // No-op dial so the bloc's snapshot.price reflects the live
+        // feed's actual current price (not the seeded fixture value).
+        priceFeed.setPriceOffset('BTC', 0);
+        await Future<void>.delayed(Duration.zero);
+        await pumpEventQueue();
+
+        final TradePairSnapshot before = bloc.state.snapshot!;
+        final double anchorBefore = before.priceAt24hAgo;
+        final double priceBefore = before.price;
+
+        // Dial +$1500 — live price jumps by ~$1500, but the 24h
+        // anchor stays put (yesterday's price didn't actually
+        // change), so the change pill jumps to reflect the spike.
+        priceFeed.setPriceOffset('BTC', 1500);
+        await Future<void>.delayed(Duration.zero);
+        await pumpEventQueue();
+
+        final TradePairSnapshot after = bloc.state.snapshot!;
+        expect(
+          after.priceAt24hAgo,
+          closeTo(anchorBefore, 0.01),
+          reason:
+              'past anchor must NOT shift — yesterday is still yesterday',
+        );
+        expect(
+          after.price,
+          closeTo(priceBefore + 1500, 50.0),
+          reason: 'live price reflects the dial event',
+        );
+        // Expected change pct = (newPrice - anchor) / anchor * 100.
+        final double expectedPct =
+            anchorBefore == 0 ? 0 : ((after.price - anchorBefore) / anchorBefore) * 100;
+        expect(
+          after.changePercent,
+          closeTo(expectedPct, 0.5),
+          reason:
+              'change pct reflects the actual jump, not a uniform shift',
+        );
+      },
+    );
+  });
 }

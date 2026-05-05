@@ -91,7 +91,11 @@ class AllocationDonut extends StatelessWidget {
                           h.allocationPercent,
                           withSign: false,
                         ),
-                        style: t.typography.bodyMd.copyWith(
+                        // Mono so the right-hand percent column
+                        // stays in lockstep across legend rows
+                        // when allocations rebalance.
+                        style: t.typography.numericSm.copyWith(
+                          fontSize: 14,
                           color: t.colors.contentSecondary,
                           fontWeight: FontWeight.w600,
                         ),

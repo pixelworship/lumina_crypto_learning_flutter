@@ -21,6 +21,16 @@ abstract class TickRepository {
   /// for a single symbol. Useful for debug-driven price shocks.
   void setPriceOffset(String symbol, double offset);
 
+  /// Returns the current debug-driven price offset for [symbol]
+  /// (default 0). Exposed so callers that own per-bloc copies of the
+  /// offset (e.g. the chart bloc) can seed their state from the
+  /// shared feed's actual value — otherwise a route-scoped bloc
+  /// constructed after the user already dialed an offset would think
+  /// the offset is 0 while the feed reports a non-zero value, causing
+  /// the next dial to overwrite (rather than increment) the feed's
+  /// offset.
+  double priceOffset(String symbol);
+
   /// Pauses or resumes tick generation entirely. While paused, no
   /// ticks are emitted — wall-clock time keeps advancing so resumption
   /// produces a real time gap (the chart marks it "DATA UNAVAILABLE").
@@ -64,6 +74,9 @@ class MockTickRepository implements TickRepository {
   @override
   void setPriceOffset(String symbol, double offset) =>
       _feed.setPriceOffset(symbol, offset);
+
+  @override
+  double priceOffset(String symbol) => _feed.priceOffset(symbol);
 
   @override
   void setPaused(bool paused) => _feed.setPaused(paused);

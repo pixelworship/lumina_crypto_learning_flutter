@@ -93,7 +93,10 @@ class CachedHistoricalTickRepository implements HistoricalTickRepository {
       return lookup.hits;
     }
 
-    final List<Tick> fetched = <Tick>[];
+    // Each fetched range is itself sorted ascending (api contract).
+    // We accumulate the per-range fetches as a list-of-sorted-runs so
+    // we can merge against `lookup.hits` in linear time below.
+    final List<List<Tick>> fetchedRuns = <List<Tick>>[];
     for (final TickRange range in lookup.missing) {
       MrmTrace.mark(52, 'Repo.api.fetchTicks await',
           'range=${range.start.toIso8601String()}..${range.end.toIso8601String()}');
@@ -104,7 +107,9 @@ class CachedHistoricalTickRepository implements HistoricalTickRepository {
       );
       MrmTrace.mark(53, 'Repo.api.fetchTicks done', 'ticks=${ticks.length}');
       // Store each page individually so the covered-ranges metadata
-      // accurately reflects which intervals we've asked about.
+      // accurately reflects which intervals we've asked about. The
+      // cache itself merges incoming sorted runs in O(n+m) — see
+      // [_SymbolCache._mergeSorted].
       _cache.store(
         symbol: symbol,
         ticks: ticks,
@@ -112,14 +117,55 @@ class CachedHistoricalTickRepository implements HistoricalTickRepository {
         rangeEnd: range.end,
       );
       MrmTrace.mark(54, 'Repo cache store');
-      fetched.addAll(ticks);
+      if (ticks.isNotEmpty) fetchedRuns.add(ticks);
     }
 
-    final List<Tick> merged = <Tick>[...lookup.hits, ...fetched]
-      ..sort((Tick a, Tick b) => a.timestamp.compareTo(b.timestamp));
-    MrmTrace.mark(55, 'Repo.fetchTicks merge+sort done',
-        'ticks=${merged.length}');
+    // K-way merge of pre-sorted runs (`lookup.hits` plus every fetched
+    // range). The previous implementation did a single big
+    // `..sort()` after concatenation — `O((n+m) log(n+m))` on the main
+    // thread, which adds up fast on a 24h fetch (~30k+ ticks per
+    // page). Linear merging keeps the work proportional to the
+    // payload and stays in the main thread without dropping frames.
+    final List<List<Tick>> runs = <List<Tick>>[
+      if (lookup.hits.isNotEmpty) lookup.hits,
+      ...fetchedRuns,
+    ];
+    final List<Tick> merged = _mergeSortedRuns(runs);
+    MrmTrace.mark(55, 'Repo.fetchTicks merge done', 'ticks=${merged.length}');
     return merged;
+  }
+
+  /// K-way merge over pre-sorted tick runs. Linear in total size
+  /// when the run count is small (which it always is here — at most
+  /// `cacheHits + missingRanges + 1`, typically 1–2). For larger run
+  /// counts we'd want a proper min-heap; we don't have that case in
+  /// practice so the straightforward "find the minimum head" loop
+  /// stays cache-friendly.
+  static List<Tick> _mergeSortedRuns(List<List<Tick>> runs) {
+    if (runs.isEmpty) return const <Tick>[];
+    if (runs.length == 1) return List<Tick>.from(runs.first);
+    int total = 0;
+    for (final List<Tick> run in runs) {
+      total += run.length;
+    }
+    if (total == 0) return const <Tick>[];
+    final List<int> idx = List<int>.filled(runs.length, 0);
+    final List<Tick> out = List<Tick>.filled(total, runs.first.first,
+        growable: true);
+    for (int written = 0; written < total; written++) {
+      int minRun = -1;
+      DateTime? minTs;
+      for (int r = 0; r < runs.length; r++) {
+        if (idx[r] >= runs[r].length) continue;
+        final DateTime ts = runs[r][idx[r]].timestamp;
+        if (minTs == null || ts.isBefore(minTs)) {
+          minTs = ts;
+          minRun = r;
+        }
+      }
+      out[written] = runs[minRun][idx[minRun]++];
+    }
+    return out;
   }
 
   @override

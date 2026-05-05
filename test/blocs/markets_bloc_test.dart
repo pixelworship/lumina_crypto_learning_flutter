@@ -44,6 +44,7 @@ const List<CryptoQuote> _seed = <CryptoQuote>[
     price: 64000,
     change24hPercent: 2.4,
     change24hAbsolute: 1500,
+    priceAt24hAgo: 62500,
   ),
   CryptoQuote(
     asset: _uni,
@@ -51,6 +52,7 @@ const List<CryptoQuote> _seed = <CryptoQuote>[
     price: 11.0,
     change24hPercent: 0.5,
     change24hAbsolute: 0.05,
+    priceAt24hAgo: 10.95,
   ),
 ];
 
@@ -173,6 +175,7 @@ void main() {
                 price: 1.5,
                 change24hPercent: 0.0,
                 change24hAbsolute: 0.0,
+                priceAt24hAgo: 1.5,
               ),
             ],
             nextOffset: 22,
@@ -215,6 +218,71 @@ void main() {
             offset: any(named: 'offset'),
             limit: any(named: 'limit'),
           ),
+        );
+      },
+    );
+
+    test(
+      'dialing the debug price offset moves the live price up while '
+      'leaving the cached 24h anchor untouched (change pct reflects '
+      'the spike, not a uniform shift)',
+      () async {
+        final MarketsBloc bloc = MarketsBloc(
+          marketRepository: repository,
+          priceFeed: priceFeed,
+        );
+        addTearDown(bloc.close);
+
+        // Drive the bloc to a successful initial load.
+        bloc.add(const MarketsRequested());
+        await bloc.stream.firstWhere(
+          (MarketsState s) => s.status == MarketsStatus.success,
+        );
+
+        // Force a "no-op" dial so the bloc's state.quotes have
+        // live-feed-sourced prices (the mock seed values won't match
+        // currentPrice() since the live feed has its own noise curve).
+        priceFeed.setPriceOffset('BTC', 0);
+        await Future<void>.delayed(Duration.zero);
+        await pumpEventQueue();
+
+        final CryptoQuote btcBefore = bloc.state.quotes
+            .firstWhere((CryptoQuote q) => q.asset.symbol == 'BTC');
+        final double priceBefore = btcBefore.price;
+        final double anchorBefore = btcBefore.priceAt24hAgo;
+
+        // Dial +$1000 on BTC. The live price should jump by ~$1000
+        // but the 24h anchor must stay put — yesterday's price is
+        // historical fact, not affected by today's pump.
+        priceFeed.setPriceOffset('BTC', 1000);
+        await Future<void>.delayed(Duration.zero);
+        await pumpEventQueue();
+
+        final CryptoQuote btcAfter = bloc.state.quotes
+            .firstWhere((CryptoQuote q) => q.asset.symbol == 'BTC');
+
+        // Anchor unchanged.
+        expect(
+          btcAfter.priceAt24hAgo,
+          closeTo(anchorBefore, 0.01),
+          reason: 'past anchor must NOT shift on a present-tense dial',
+        );
+        // Live price absorbed the +1000 delta. Tolerance is generous
+        // to absorb microsecond noise drift between ticks.
+        expect(
+          btcAfter.price,
+          closeTo(priceBefore + 1000, 50.0),
+          reason: 'live price reflects the dial event',
+        );
+        // Change pct now reflects the spike: (newPrice - anchor) /
+        // anchor * 100.
+        final double expectedPct =
+            anchorBefore == 0 ? 0 : ((btcAfter.price - anchorBefore) / anchorBefore) * 100;
+        expect(
+          btcAfter.change24hPercent,
+          closeTo(expectedPct, 0.5),
+          reason:
+              'change pct reflects the actual jump, not a uniform shift',
         );
       },
     );

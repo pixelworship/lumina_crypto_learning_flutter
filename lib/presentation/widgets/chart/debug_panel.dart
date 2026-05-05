@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../../../design_system/lumina_ui.dart';
 import 'backfill_button.dart';
-import 'debug_event_drop_button.dart';
 import 'debug_pause_control.dart';
 import 'debug_price_offset_controls.dart';
 import 'debug_speed_controls.dart';
@@ -63,7 +62,6 @@ class _DebugPanelState extends State<DebugPanel>
     // Order matters: the topmost child is the last to animate in
     // (deepest stagger) so the fan-out reads upward from the trigger.
     const List<Widget> children = <Widget>[
-      DebugEventDropButton(),
       VolumeOverlayToggleButton(),
       ExtendHistoryButton(),
       BackfillButton(),

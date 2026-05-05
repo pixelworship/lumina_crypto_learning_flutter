@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import '../../../core/clock/clock.dart';
 import '../../../data/models/portfolio_holding.dart';
 import '../../../data/repositories/portfolio_repository.dart';
 import '../../../data/services/live_price_feed.dart';
@@ -13,10 +12,8 @@ class PortfolioBloc extends Bloc<PortfolioEvent, PortfolioState> {
   PortfolioBloc({
     required PortfolioRepository portfolioRepository,
     required LivePriceFeed priceFeed,
-    Clock clock = const SystemClock(),
   }) : _portfolioRepository = portfolioRepository,
        _priceFeed = priceFeed,
-       _clock = clock,
        super(const PortfolioState()) {
     on<PortfolioRequested>(_onRequested);
     on<PortfolioRefreshed>(_onRefreshed);
@@ -29,8 +26,23 @@ class PortfolioBloc extends Bloc<PortfolioEvent, PortfolioState> {
 
   final PortfolioRepository _portfolioRepository;
   final LivePriceFeed _priceFeed;
-  final Clock _clock;
   late final StreamSubscription<LivePriceUpdate> _feedSub;
+
+  /// Per-symbol "baked offset": the debug price offset that was
+  /// active when the cached portfolio's `totalValueAt24hAgo` was
+  /// computed (i.e. when the warehouse api summed
+  /// `quantity * (noise(yesterday) + offset)` per holding). On every
+  /// live tick the bloc folds the per-symbol delta back into the
+  /// aggregate so the 24h pill stays stable while the absolute
+  /// total tracks the dialed offset uniformly.
+  final Map<String, double> _bakedOffsets = <String, double>{};
+
+  void _captureBakedOffsets(Iterable<PortfolioHolding> holdings) {
+    for (final PortfolioHolding h in holdings) {
+      _bakedOffsets[h.asset.symbol.toUpperCase()] =
+          _priceFeed.priceOffset(h.asset.symbol);
+    }
+  }
 
   Future<void> _onRequested(
     PortfolioRequested event,
@@ -51,6 +63,7 @@ class PortfolioBloc extends Bloc<PortfolioEvent, PortfolioState> {
     try {
       final PortfolioSummary summary = await _portfolioRepository
           .getPortfolio();
+      _captureBakedOffsets(summary.holdings);
       emit(
         state.copyWith(status: PortfolioStatus.success, summary: summary),
       );
@@ -70,9 +83,6 @@ class PortfolioBloc extends Bloc<PortfolioEvent, PortfolioState> {
   ) {
     final PortfolioSummary? summary = state.summary;
     if (summary == null || summary.holdings.isEmpty) return;
-
-    final DateTime yesterday =
-        _clock.now().subtract(const Duration(hours: 24));
 
     final List<PortfolioHolding> updatedHoldings =
         summary.holdings.map((PortfolioHolding h) {
@@ -106,14 +116,30 @@ class PortfolioBloc extends Bloc<PortfolioEvent, PortfolioState> {
       );
     }).toList();
 
-    double yesterdayTotal = 0;
+    // The 24h-ago aggregate was returned by the warehouse API on
+    // initial fetch with a per-holding offset baked in. If the user
+    // has dialed the debug offset since, fold the per-symbol delta
+    // (× quantity) into the aggregate so the 24h pill matches the
+    // chart's "across the board" shift instead of phantom-spiking.
+    double anchorShift = 0;
     for (final PortfolioHolding h in summary.holdings) {
-      yesterdayTotal +=
-          h.quantity * _priceFeed.priceAt(h.asset.symbol, yesterday);
+      final String key = h.asset.symbol.toUpperCase();
+      final double currentOffset = _priceFeed.priceOffset(h.asset.symbol);
+      final double bakedOffset = _bakedOffsets[key] ?? currentOffset;
+      anchorShift += h.quantity * (currentOffset - bakedOffset);
     }
-    final double changeAbs = newTotal - yesterdayTotal;
+    final double anchor = summary.totalValueAt24hAgo + anchorShift;
+    final double changeAbs = newTotal - anchor;
     final double changePct =
-        yesterdayTotal == 0 ? 0.0 : (changeAbs / yesterdayTotal) * 100;
+        anchor == 0 ? 0.0 : (changeAbs / anchor) * 100;
+
+    // Persist the latest per-symbol offsets so subsequent ticks
+    // compute their delta against this refreshed baseline (the
+    // anchor has now absorbed the dial, so the delta resets).
+    for (final PortfolioHolding h in summary.holdings) {
+      _bakedOffsets[h.asset.symbol.toUpperCase()] =
+          _priceFeed.priceOffset(h.asset.symbol);
+    }
 
     emit(
       state.copyWith(
@@ -121,6 +147,7 @@ class PortfolioBloc extends Bloc<PortfolioEvent, PortfolioState> {
           totalValueUsd: newTotal,
           changeTodayUsd: changeAbs,
           changeTodayPercent: changePct,
+          totalValueAt24hAgo: anchor,
           holdings: rebalanced,
         ),
       ),

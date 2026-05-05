@@ -26,20 +26,25 @@ class LuminaTypography {
     required this.numericSm,
   });
 
-  /// Default Inter-based scale.
+  /// Inter for prose; JetBrains Mono for everything numeric.
   ///
-  /// Numeric variants enable tabular figures so prices, percentages, and
-  /// quantities don't shimmer when their values change.
+  /// Numeric variants use a true monospace face (JetBrains Mono) so
+  /// every glyph in a price — digits, decimals, commas, currency
+  /// symbol, percent — has identical advance width. That means
+  /// `$10,234.56` and `$10,234.57` paint to the exact same pixel
+  /// positions and the value can flicker through ticks without the
+  /// surrounding row shifting. `tabularFigures` is layered on top
+  /// as a belt-and-suspenders measure for mid-tick fallback faces.
   ///
-  /// Pass [baseStyle] / [baseNumericStyle] in tests or previews to skip
-  /// `google_fonts` HTTP/cache I/O.
+  /// Pass [baseStyle] / [baseNumericStyle] in tests or previews to
+  /// skip `google_fonts` HTTP/cache I/O.
   factory LuminaTypography.standard({
     TextStyle? baseStyle,
     TextStyle? baseNumericStyle,
   }) {
     final TextStyle base = baseStyle ?? GoogleFonts.inter();
     final TextStyle baseNum = baseNumericStyle ??
-        GoogleFonts.inter(
+        GoogleFonts.jetBrainsMono(
           fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
         );
 
@@ -76,12 +81,17 @@ class LuminaTypography {
     );
   }
 
-  /// Test/preview-friendly typography that uses the platform default font
-  /// (no HTTP / disk I/O). Use this in unit tests that construct tokens
-  /// directly without a [WidgetTester].
+  /// Test/preview-friendly typography that uses the platform default
+  /// fonts (no HTTP / disk I/O). The numeric variant points at the
+  /// generic `'monospace'` family so layout-sensitive widget tests
+  /// still get equal-width digit advances; production paints with
+  /// JetBrains Mono via [LuminaTypography.standard]. Use this in
+  /// unit tests that construct tokens directly without a
+  /// [WidgetTester].
   factory LuminaTypography.system() => LuminaTypography.standard(
     baseStyle: const TextStyle(),
     baseNumericStyle: const TextStyle(
+      fontFamily: 'monospace',
       fontFeatures: <FontFeature>[FontFeature.tabularFigures()],
     ),
   );

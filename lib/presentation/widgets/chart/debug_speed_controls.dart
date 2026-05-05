@@ -62,7 +62,13 @@ class _SpeedReadout extends StatelessWidget {
         ),
         child: Text(
           '${_format(speed)}x',
-          style: t.typography.labelLg.copyWith(
+          // Mono so the speed readout doesn't change width as the
+          // value flips between e.g. `0.5x`, `1x`, `1.5x` while
+          // the slider is dragged.
+          style: t.typography.numericSm.copyWith(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.4,
             color: t.colors.contentPrimary,
           ),
         ),

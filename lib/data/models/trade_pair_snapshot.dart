@@ -19,12 +19,17 @@ enum ChartRange {
 }
 
 /// Everything the Trade screen needs for a single base/quote pair.
+///
+/// `priceAt24hAgo` is the historical anchor used to keep
+/// [changePercent] live across [LivePriceFeed] ticks without
+/// re-reading historical data outside the API surface.
 class TradePairSnapshot extends Equatable {
   const TradePairSnapshot({
     required this.base,
     required this.quote,
     required this.price,
     required this.changePercent,
+    required this.priceAt24hAgo,
     required this.range,
     required this.priceHistory,
     required this.bids,
@@ -35,6 +40,10 @@ class TradePairSnapshot extends Equatable {
   final CryptoAsset quote;
   final double price;
   final double changePercent;
+
+  /// Anchor price 24 hours before this snapshot was issued.
+  final double priceAt24hAgo;
+
   final ChartRange range;
   final List<PricePoint> priceHistory;
   final List<OrderBookEntry> bids;
@@ -49,6 +58,7 @@ class TradePairSnapshot extends Equatable {
     quote,
     price,
     changePercent,
+    priceAt24hAgo,
     range,
     priceHistory,
     bids,

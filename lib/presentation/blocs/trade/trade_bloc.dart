@@ -163,6 +163,14 @@ class TradeBloc extends Bloc<TradeEvent, TradeState> {
   /// sparkline stay anchored to whatever the last full load produced
   /// — refreshing them every 200ms would be wasteful and visually
   /// jittery.
+  ///
+  /// The 24h anchor came from the warehouse API on initial fetch;
+  /// we never re-read historical data here. Under the event-based
+  /// offset model, the cached anchor stays valid across debug dial
+  /// events because the offset only takes effect from the dial
+  /// timestamp forward — yesterday's price is unchanged. So a
+  /// debug pump shows up naturally as a jump in the change pill,
+  /// matching the visual step the chart paints.
   void _onPricesUpdated(
     _PricesUpdated event,
     Emitter<TradeState> emit,
@@ -172,14 +180,12 @@ class TradeBloc extends Bloc<TradeEvent, TradeState> {
 
     final String symbol = snapshot.base.symbol;
     final double newPrice = _priceFeed.currentPrice(symbol);
-    final DateTime yesterday =
-        _clock.now().subtract(const Duration(hours: 24));
-    final double yesterdayPrice = _priceFeed.priceAt(symbol, yesterday);
-    final double changePct = yesterdayPrice == 0
-        ? 0.0
-        : ((newPrice - yesterdayPrice) / yesterdayPrice) * 100;
+    final double anchor = snapshot.priceAt24hAgo;
+    final double changePct =
+        anchor == 0 ? 0.0 : ((newPrice - anchor) / anchor) * 100;
 
-    if (newPrice == snapshot.price && changePct == snapshot.changePercent) {
+    if (newPrice == snapshot.price &&
+        changePct == snapshot.changePercent) {
       return;
     }
 
@@ -190,6 +196,7 @@ class TradeBloc extends Bloc<TradeEvent, TradeState> {
           quote: snapshot.quote,
           price: newPrice,
           changePercent: changePct,
+          priceAt24hAgo: anchor,
           range: snapshot.range,
           priceHistory: snapshot.priceHistory,
           bids: snapshot.bids,

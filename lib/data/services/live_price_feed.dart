@@ -6,12 +6,50 @@ import '../models/crypto_asset.dart';
 import 'asset_catalog.dart';
 import 'price_noise.dart';
 
-/// One emission of the live price feed: the full price map for every
-/// registered symbol at a single point in time.
-class LivePriceUpdate {
-  const LivePriceUpdate({required this.prices, required this.timestamp});
+/// Single dial event in a symbol's offset history.
+///
+/// The [offset] takes effect AT [timestamp] and stays in force until
+/// a later event supersedes it. Modeling the debug "price pump"
+/// feature as a step function — rather than a single mutable value
+/// applied uniformly to the entire timeline — is what makes it
+/// behave like a real-world volume-driven spike: prices BEFORE the
+/// press stay where they were (the past was the past), prices FROM
+/// the press forward are at `noise(t) + offset`. Paging back through
+/// history reveals the step at the exact moment of the press,
+/// instead of seeing the entire historical curve uniformly slide
+/// up/down with the dial.
+typedef OffsetEvent = ({DateTime timestamp, double offset});
 
+/// One emission of the live price feed: the full price map for every
+/// registered symbol at a single point in time, plus the per-symbol
+/// CURRENT debug offset value.
+///
+/// `prices` always reflects the logical price the rest of the app
+/// should show — for live emissions that's `noise(now) +
+/// offsetAt(symbol, now)`. `offsets` carries the per-symbol latest
+/// dial value as informational metadata (e.g. so a debug overlay
+/// can render the current dial position); subscribers should NOT
+/// shift cached historical anchors in response to changes here.
+/// With the event-based offset model, a historical anchor is
+/// `noise(historicalTimestamp) + offsetAt(symbol,
+/// historicalTimestamp)` and stays correct across debug dial events
+/// because the offset that was active at the historical timestamp
+/// doesn't change retroactively.
+class LivePriceUpdate {
+  const LivePriceUpdate({
+    required this.prices,
+    required this.offsets,
+    required this.timestamp,
+  });
+
+  /// Live price per symbol. Reflects the current offset dialed for
+  /// that symbol (if any).
   final Map<String, double> prices;
+
+  /// Per-symbol latest debug dial value. Empty for symbols with no
+  /// dial events. Informational only — see class doc.
+  final Map<String, double> offsets;
+
   final DateTime timestamp;
 }
 
@@ -71,8 +109,10 @@ class LivePriceFeed {
       microAmplitude: basePrice * 0.02,
     );
     _noises[key] = noise;
-    final double price = (noise.priceAt(_clock.now()) + (_offsets[key] ?? 0))
-        .clamp(0.0001, double.infinity);
+    final DateTime now = _clock.now();
+    final double price =
+        (noise.priceAt(now) + _offsetAt(key, now))
+            .clamp(0.0001, double.infinity);
     _currentPrices[key] =
         double.parse(price.toStringAsFixed(_decimalsFor(price)));
     return noise;
@@ -83,7 +123,7 @@ class LivePriceFeed {
     for (final MapEntry<String, PriceNoise> entry in _noises.entries) {
       final String symbol = entry.key;
       final PriceNoise noise = entry.value;
-      final double base = noise.priceAt(now) + (_offsets[symbol] ?? 0);
+      final double base = noise.priceAt(now) + _offsetAt(symbol, now);
       final double price = base.clamp(0.0001, double.infinity);
       _currentPrices[symbol] =
           double.parse(price.toStringAsFixed(_decimalsFor(price)));
@@ -135,7 +175,18 @@ class LivePriceFeed {
 
   final Map<String, PriceNoise> _noises = <String, PriceNoise>{};
   final Map<String, double> _currentPrices = <String, double>{};
-  final Map<String, double> _offsets = <String, double>{};
+
+  /// Per-symbol offset history, sorted ascending by timestamp.
+  /// Lookups walk the list in order taking the latest event whose
+  /// timestamp is `<= t`. Each [setPriceOffset] call APPENDS a new
+  /// event rather than overwriting any single mutable value — so
+  /// past prices keep whatever offset was in force at their original
+  /// time, and only ticks from the dial moment forward see the new
+  /// offset (modeling a real-world price-pump event where the past
+  /// is the past).
+  final Map<String, List<OffsetEvent>> _offsetEvents =
+      <String, List<OffsetEvent>>{};
+
   final Random _random;
   final Clock _clock;
   final int _minDelayMs;
@@ -149,6 +200,26 @@ class LivePriceFeed {
 
   final StreamController<LivePriceUpdate> _controller =
       StreamController<LivePriceUpdate>.broadcast();
+
+  /// Returns the offset that was active for [key] at time [t].
+  /// Walks the symbol's event history and takes the latest event
+  /// whose timestamp is `<= t`. Returns 0 when the dial has never
+  /// been moved (or all recorded events are AFTER [t]).
+  ///
+  /// Linear walk because per-symbol event lists are tiny in
+  /// practice (a handful of user dials per session) — a binary
+  /// search would lose against the constant-factor savings of an
+  /// in-cache linear scan at this size.
+  double _offsetAt(String key, DateTime t) {
+    final List<OffsetEvent>? events = _offsetEvents[key];
+    if (events == null || events.isEmpty) return 0;
+    double offset = 0;
+    for (final OffsetEvent e in events) {
+      if (e.timestamp.isAfter(t)) break;
+      offset = e.offset;
+    }
+    return offset;
+  }
 
   void _scheduleNextTick() {
     if (_disposed || _paused) return;
@@ -169,7 +240,7 @@ class LivePriceFeed {
     for (final MapEntry<String, PriceNoise> entry in _noises.entries) {
       final String symbol = entry.key;
       final PriceNoise noise = entry.value;
-      final double base = noise.priceAt(now) + (_offsets[symbol] ?? 0);
+      final double base = noise.priceAt(now) + _offsetAt(symbol, now);
       // Small per-tick jitter for tick-to-tick spread within a candle.
       final double jitter =
           (_random.nextDouble() - 0.5) * (base.abs() * 0.001);
@@ -178,12 +249,7 @@ class LivePriceFeed {
           double.parse(price.toStringAsFixed(_decimalsFor(price)));
     }
     if (_controller.isClosed) return;
-    _controller.add(
-      LivePriceUpdate(
-        prices: Map<String, double>.unmodifiable(_currentPrices),
-        timestamp: now,
-      ),
-    );
+    _controller.add(_buildUpdate(now));
   }
 
   /// Sub-cent precision for low-priced tokens so we don't quantize a
@@ -208,18 +274,29 @@ class LivePriceFeed {
     final String key = symbol.toUpperCase();
     if (_currentPrices.containsKey(key)) return _currentPrices[key]!;
     final PriceNoise noise = _ensureNoise(key);
-    final double price =
-        noise.priceAt(_clock.now()) + (_offsets[key] ?? 0);
+    final DateTime now = _clock.now();
+    final double price = noise.priceAt(now) + _offsetAt(key, now);
     return double.parse(price.toStringAsFixed(_decimalsFor(price)));
   }
 
-  /// Computes the price for [symbol] at an arbitrary [timestamp] using
-  /// the symbol's noise curve. Used to derive 24h-ago prices for the
-  /// `change24h` fields on `CryptoQuote` etc., so the change reflects
-  /// the same curve the live price tracks.
+  /// Computes the price for [symbol] at an arbitrary [timestamp]
+  /// using the symbol's noise curve, with the offset that was
+  /// active AT [timestamp] baked in (NOT the current dial value).
+  ///
+  /// This is the key to making the debug-pump feature behave like a
+  /// real-world spike rather than a uniform "everything slides
+  /// together" shift: the API service uses [priceAt] to compute the
+  /// 24h anchor (`CryptoQuote.priceAt24hAgo`,
+  /// `BalanceSummary.valueAt24hAgo`, etc.). With the event-based
+  /// model, a press dialed in JUST NOW does not retroactively shift
+  /// yesterday's price — the anchor stays where it was, and the
+  /// live tick at `now + offset` produces the visible step exactly
+  /// at the moment of the press.
   double priceAt(String symbol, DateTime timestamp) {
-    final PriceNoise noise = _ensureNoise(symbol);
-    final double price = noise.priceAt(timestamp);
+    final String key = symbol.toUpperCase();
+    final PriceNoise noise = _ensureNoise(key);
+    final double price =
+        noise.priceAt(timestamp) + _offsetAt(key, timestamp);
     return double.parse(price.toStringAsFixed(_decimalsFor(price)));
   }
 
@@ -230,13 +307,32 @@ class LivePriceFeed {
   /// asset works without pre-registration).
   PriceNoise? noiseFor(String symbol) => _ensureNoise(symbol);
 
-  /// Current debug-driven price offset for [symbol] (default 0).
-  /// Exposed so the historical API can synthesize past ticks with
-  /// the same offset baked in — otherwise a debug-driven price
-  /// spike would only affect live ticks, leaving every historical
-  /// candle on the chart at the unaffected price.
-  double priceOffset(String symbol) =>
-      _offsets[symbol.toUpperCase()] ?? 0;
+  /// Current (latest-dialed) debug offset for [symbol]. Returns 0
+  /// when the dial has never been moved for this symbol.
+  ///
+  /// Note: this is the LATEST dial value, which is also the offset
+  /// that applies to ticks AT or AFTER the latest dial event — i.e.
+  /// the value live ticks emerging right now will use. To compute
+  /// the offset that was active at an arbitrary historical
+  /// timestamp, use [priceAt] directly (which internally calls
+  /// [_offsetAt]) rather than reading this and subtracting.
+  double priceOffset(String symbol) {
+    final List<OffsetEvent>? events = _offsetEvents[symbol.toUpperCase()];
+    if (events == null || events.isEmpty) return 0;
+    return events.last.offset;
+  }
+
+  /// Returns the full offset event history for [symbol], sorted
+  /// ascending by timestamp. Used by [MockHistoricalPriceApi] so
+  /// each synthesized tick can pick up the offset that was active
+  /// at THAT tick's timestamp (not the current dial position).
+  ///
+  /// Returns an unmodifiable view — callers must not mutate.
+  List<OffsetEvent> offsetEvents(String symbol) {
+    final List<OffsetEvent>? events = _offsetEvents[symbol.toUpperCase()];
+    if (events == null) return const <OffsetEvent>[];
+    return List<OffsetEvent>.unmodifiable(events);
+  }
 
   /// Multiplies the base emission frequency. Values greater than 1
   /// emit ticks faster, less than 1 slower. Must be > 0.
@@ -245,42 +341,75 @@ class LivePriceFeed {
     _speedMultiplier = multiplier;
   }
 
-  /// Adds a constant price offset on top of the underlying noise curve
-  /// for a single symbol. Useful for debug-driven price spikes /
-  /// crashes.
+  /// Records a dial event for [symbol] at the current wall clock.
   ///
-  /// Triggers an immediate broadcast so every subscriber (the chart,
-  /// the markets list, the portfolio, the home watchlist, the asset
-  /// detail header) snaps to the new price on the next frame —
-  /// without waiting for the next periodic feed tick.
+  /// The event is APPENDED to the symbol's offset history rather
+  /// than overwriting any single mutable value — so prices BEFORE
+  /// the dial keep whatever offset was in force at their original
+  /// time, and only ticks FROM the dial moment forward see the new
+  /// offset. Visually this renders as a clean step at the moment
+  /// of the press, just like a real-world volume-driven price
+  /// pump (the chart, the markets row, the portfolio, the trade
+  /// card header) instead of the entire historical curve sliding
+  /// up/down with the dial.
+  ///
+  /// Triggers an immediate broadcast so every subscriber snaps to
+  /// the new live price on the next frame — without waiting for
+  /// the next periodic feed tick.
+  ///
+  /// Calling with `offset == 0` is treated as a fresh "dial back to
+  /// zero" event: prices from this moment forward return to the
+  /// underlying noise curve, but prices BETWEEN earlier dial
+  /// events stay at whatever offset was active during that window.
   void setPriceOffset(String symbol, double offset) {
     if (!offset.isFinite) return;
-    _offsets[symbol.toUpperCase()] = offset;
-    _emitNow();
+    final String key = symbol.toUpperCase();
+    final DateTime now = _clock.now();
+    _offsetEvents
+        .putIfAbsent(key, () => <OffsetEvent>[])
+        .add((timestamp: now, offset: offset));
+    _emitNow(at: now);
   }
 
   /// Recomputes every symbol's price using the current noise curve +
-  /// offsets and broadcasts a fresh [LivePriceUpdate]. Bypasses the
-  /// `_paused` short-circuit on [_emit] (we want debug-driven changes
-  /// to be visible even while the feed is paused) but still respects
-  /// `_disposed`.
-  void _emitNow() {
+  /// offset events and broadcasts a fresh [LivePriceUpdate].
+  /// Bypasses the [_paused] short-circuit on [_emit] (we want
+  /// debug-driven changes to be visible even while the feed is
+  /// paused) but still respects [_disposed].
+  ///
+  /// [at] lets callers pin the broadcast timestamp to the same
+  /// wall clock instant as the dial event (so the event timestamp
+  /// and the broadcast timestamp can't drift even on a real-clock
+  /// scheduler with sub-microsecond jitter).
+  void _emitNow({DateTime? at}) {
     if (_disposed) return;
-    final DateTime now = _clock.now();
+    final DateTime now = at ?? _clock.now();
     for (final MapEntry<String, PriceNoise> entry in _noises.entries) {
       final String symbol = entry.key;
       final PriceNoise noise = entry.value;
-      final double base = noise.priceAt(now) + (_offsets[symbol] ?? 0);
+      final double base = noise.priceAt(now) + _offsetAt(symbol, now);
       final double price = base.clamp(0.0001, double.infinity);
       _currentPrices[symbol] =
           double.parse(price.toStringAsFixed(_decimalsFor(price)));
     }
     if (_controller.isClosed) return;
-    _controller.add(
-      LivePriceUpdate(
-        prices: Map<String, double>.unmodifiable(_currentPrices),
-        timestamp: now,
-      ),
+    _controller.add(_buildUpdate(now));
+  }
+
+  /// Builds a [LivePriceUpdate] from the current price cache + the
+  /// latest offset for each symbol that has a dial history. Shared
+  /// between the periodic [_emit] and the on-demand [_emitNow] so
+  /// both broadcast shapes stay in lockstep.
+  LivePriceUpdate _buildUpdate(DateTime now) {
+    final Map<String, double> latestOffsets = <String, double>{
+      for (final MapEntry<String, List<OffsetEvent>> e
+          in _offsetEvents.entries)
+        if (e.value.isNotEmpty) e.key: e.value.last.offset,
+    };
+    return LivePriceUpdate(
+      prices: Map<String, double>.unmodifiable(_currentPrices),
+      offsets: Map<String, double>.unmodifiable(latestOffsets),
+      timestamp: now,
     );
   }
 

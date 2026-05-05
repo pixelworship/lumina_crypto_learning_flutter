@@ -16,8 +16,9 @@ Future<void> main() async {
   await Hive.initFlutter();
   registerFillAdapters();
   final FillStorage fillStorage = await FillStorage.open();
-  final FillRepository fillRepository =
-      LocalFillRepository(storage: fillStorage);
+  final FillRepository fillRepository = LocalFillRepository(
+    storage: fillStorage,
+  );
 
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(

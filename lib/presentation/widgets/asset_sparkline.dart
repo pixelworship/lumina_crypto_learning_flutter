@@ -9,9 +9,15 @@ import '../../design_system/lumina_ui.dart';
 ///
 /// Reads its data directly from a [SparklineFeed] keyed by [symbol]
 /// — *not* through a bloc. The feed publishes a fresh immutable
-/// `List<double>` whenever new data arrives, so a `ValueListenable`
-/// wired into [ValueListenableBuilder] is the cheapest path between
-/// "price tick fired" and "this row repainted".
+/// [SparklineSnapshot] whenever new data arrives, so a
+/// `ValueListenable` wired into [ValueListenableBuilder] is the
+/// cheapest path between "price tick fired" and "this row repainted".
+///
+/// While the warehouse api seed-fetch is still in flight the widget
+/// renders a [LuminaSkeleton] shimmer of the exact same footprint
+/// as the painted polyline — so the row's column-width never jumps
+/// on hydration. After the response resolves the polyline takes
+/// over and live ticks animate it in place.
 ///
 /// Wrapped in a [RepaintBoundary] so the sparkline's frame-rate
 /// repaint never invalidates surrounding text widgets, and so a
@@ -49,13 +55,27 @@ class AssetSparkline extends StatelessWidget {
       child: SizedBox(
         width: size.width,
         height: size.height,
-        child: ValueListenableBuilder<List<double>>(
+        child: ValueListenableBuilder<SparklineSnapshot>(
           valueListenable: feed.watch(symbol),
-          builder: (BuildContext context, List<double> points, Widget? _) {
+          builder: (
+            BuildContext context,
+            SparklineSnapshot snapshot,
+            Widget? _,
+          ) {
+            if (snapshot.isLoading) {
+              return LuminaSkeleton(
+                width: size.width,
+                height: size.height,
+                // Tighter than the global small radius so it reads
+                // as "where the line goes" rather than a button.
+                borderRadius:
+                    const BorderRadius.all(Radius.circular(4)),
+              );
+            }
             return CustomPaint(
               size: size,
               painter: _AssetSparklinePainter(
-                points: points,
+                points: snapshot.values,
                 color: color,
               ),
             );

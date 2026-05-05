@@ -1,5 +1,7 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart' as intl;
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../data/models/candle.dart';
 import '../../../data/models/market_event.dart';
@@ -387,6 +389,8 @@ void _showEventModal(BuildContext context, MarketEvent event) {
     context: context,
     builder: (BuildContext dialogContext) {
       final LuminaTokens t = dialogContext.tokens;
+      final String? body = event.body;
+      final String? link = event.link;
       return AlertDialog(
         backgroundColor: t.colors.surfaceRaised,
         title: Row(
@@ -406,16 +410,24 @@ void _showEventModal(BuildContext context, MarketEvent event) {
                 color: t.colors.contentTertiary,
               ),
             ),
-            SizedBox(height: t.spacing.md),
-            Text(
-              event.body,
-              style: t.typography.bodyMd.copyWith(
-                color: t.colors.contentPrimary,
+            if (body != null && body.isNotEmpty) ...<Widget>[
+              SizedBox(height: t.spacing.md),
+              Text(
+                body,
+                style: t.typography.bodyMd.copyWith(
+                  color: t.colors.contentPrimary,
+                ),
               ),
-            ),
+            ],
           ],
         ),
         actions: <Widget>[
+          if (link != null && link.isNotEmpty)
+            TextButton.icon(
+              icon: const Icon(Icons.open_in_new, size: 16),
+              label: const Text('Open link'),
+              onPressed: () => _openExternal(link),
+            ),
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
             child: const Text('Close'),
@@ -424,4 +436,19 @@ void _showEventModal(BuildContext context, MarketEvent event) {
       );
     },
   );
+}
+
+/// Tries to open [url] in the platform's default external handler.
+/// Failures are intentionally swallowed (logged in debug) — the modal's
+/// primary purpose is showing the body, not navigating.
+Future<void> _openExternal(String url) async {
+  final Uri? uri = Uri.tryParse(url);
+  if (uri == null) return;
+  try {
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  } catch (e, st) {
+    if (kDebugMode) {
+      debugPrint('event link open failed: $e\n$st');
+    }
+  }
 }

@@ -122,11 +122,26 @@ class CandleAggregator {
 /// Argument record for [rebuildCandlesWorker]. A record (rather than
 /// a private class) so the bloc layer can construct it without
 /// pulling in a separate model file.
-typedef RebuildArgs = ({List<Tick> ticks, Timeframe timeframe});
+///
+/// `gaps` is optional: when supplied, the worker also runs
+/// [CandleAggregator.mergeGaps] in the same isolate so the bloc
+/// receives a fully-finished, gap-annotated candle list — the
+/// previous flow rebuilt off-main but then re-touched the result on
+/// the main thread to splice gaps, doubling the per-frame cost.
+typedef RebuildArgs = ({
+  List<Tick> ticks,
+  Timeframe timeframe,
+  List<PauseGap> gaps,
+});
 
 /// Top-level worker for `compute`/`runOffMain`: rebuilds the full
-/// candle list for a tick history. Iteration cost is `O(ticks)`, so
-/// for a 24h window (~30k ticks) this is the difference between
-/// dropping a frame and a smooth tap.
-List<Candle> rebuildCandlesWorker(RebuildArgs args) =>
-    const CandleAggregator().rebuild(args.ticks, args.timeframe);
+/// candle list for a tick history and (optionally) splices pause-
+/// gap markers in. Iteration cost is `O(ticks)`, so for a 24h
+/// window (~30k ticks) this is the difference between dropping a
+/// frame and a smooth tap.
+List<Candle> rebuildCandlesWorker(RebuildArgs args) {
+  const CandleAggregator agg = CandleAggregator();
+  final List<Candle> rebuilt = agg.rebuild(args.ticks, args.timeframe);
+  if (args.gaps.isEmpty) return rebuilt;
+  return agg.mergeGaps(rebuilt, args.gaps, args.timeframe);
+}

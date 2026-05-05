@@ -60,6 +60,7 @@ class TestAssets {
     price: 64000,
     change24hPercent: 2.4,
     change24hAbsolute: 1500,
+    priceAt24hAgo: 62500,
   );
 
   static const CryptoQuote ethQuote = CryptoQuote(
@@ -68,6 +69,7 @@ class TestAssets {
     price: 3450,
     change24hPercent: -1.2,
     change24hAbsolute: -42,
+    priceAt24hAgo: 3492,
   );
 
   static const CryptoQuote uniQuote = CryptoQuote(
@@ -76,6 +78,7 @@ class TestAssets {
     price: 11.0,
     change24hPercent: 0.5,
     change24hAbsolute: 0.05,
+    priceAt24hAgo: 10.95,
   );
 
   static const List<CryptoQuote> watchlist = <CryptoQuote>[btcQuote, ethQuote];
@@ -84,6 +87,7 @@ class TestAssets {
     totalBalanceUsd: 142850.24,
     change24hUsd: 3420.50,
     change24hPercent: 2.4,
+    valueAt24hAgo: 139429.74,
     sparkline: <PricePoint>[
       PricePoint(timestamp: DateTime.utc(2026, 1, 1), price: 100),
       PricePoint(timestamp: DateTime.utc(2026, 1, 2), price: 110),
@@ -94,6 +98,7 @@ class TestAssets {
     totalValueUsd: 124850.42,
     changeTodayUsd: 3420.50,
     changeTodayPercent: 2.8,
+    totalValueAt24hAgo: 121429.92,
     holdings: <PortfolioHolding>[
       PortfolioHolding(
         asset: btc,
@@ -117,6 +122,7 @@ class TestAssets {
     quote: usdt,
     price: 64289.50,
     changePercent: 2.46,
+    priceAt24hAgo: 62745.22,
     range: ChartRange.oneDay,
     priceHistory: <PricePoint>[
       PricePoint(timestamp: DateTime.utc(2026, 1, 1), price: 63000),

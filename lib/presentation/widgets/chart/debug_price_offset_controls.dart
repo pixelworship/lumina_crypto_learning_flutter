@@ -69,7 +69,14 @@ class _OffsetReadout extends StatelessWidget {
           isPositive: offset > 0,
           isZero: offset == 0,
           text: Formatters.currency(offset.abs()),
-          style: t.typography.labelLg,
+          // Use the mono numeric scale so the offset readout's
+          // currency value stays stable as the user drags the
+          // slider — pin metrics to match `labelLg`'s look.
+          style: t.typography.numericSm.copyWith(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.4,
+          ),
         ),
       ),
     );

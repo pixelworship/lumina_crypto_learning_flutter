@@ -5,6 +5,22 @@ import '../../data/models/crypto_asset.dart';
 import '../../design_system/lumina_ui.dart';
 import 'asset_sparkline.dart';
 
+/// Width-pinning template for [Formatters.compactCurrency]: the
+/// longest string the formatter can practically produce. Below
+/// $1000 it emits `$NNN.NN` (max 7 chars); above, it emits
+/// `$NNN.NX` for K/M/B/T (max 7 chars). With JetBrains Mono +
+/// tabular figures the template lays out to a fixed width that
+/// every realistic price fits within — so the price column's
+/// width never twitches as live ticks cross digit-count
+/// boundaries (`$9.99` → `$11.37` → `$156.99` → `$3.9K`).
+const String _compactCurrencyTemplate = r'$999.9T';
+
+/// Width-pinning template for [Formatters.percent] without a
+/// sign. Caps at four-digit absolute values which comfortably
+/// covers every realistic 24h move plus the debug-pump scenarios
+/// that produce momentary triple-digit pcts.
+const String _percentTemplate = '9999.99%';
+
 /// Markets list row: rank + asset + price + 24h change.
 class AssetMarketRow extends StatelessWidget {
   const AssetMarketRow({super.key, required this.quote, this.onTap});
@@ -70,8 +86,9 @@ class AssetMarketRow extends StatelessWidget {
             Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: <Widget>[
-                Text(
-                  Formatters.compactCurrency(quote.price),
+                LuminaNumericText(
+                  text: Formatters.compactCurrency(quote.price),
+                  template: _compactCurrencyTemplate,
                   style: t.typography.numericSm.copyWith(
                     color: t.colors.contentPrimary,
                     fontSize: 14,
@@ -85,6 +102,7 @@ class AssetMarketRow extends StatelessWidget {
                     quote.change24hPercent,
                     withSign: false,
                   ),
+                  widthTemplate: _percentTemplate,
                 ),
               ],
             ),
@@ -127,8 +145,9 @@ class WatchlistRow extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.end,
             mainAxisAlignment: MainAxisAlignment.center,
             children: <Widget>[
-              Text(
-                Formatters.compactCurrency(quote.price),
+              LuminaNumericText(
+                text: Formatters.compactCurrency(quote.price),
+                template: _compactCurrencyTemplate,
                 style: t.typography.numericSm.copyWith(
                   color: t.colors.contentPrimary,
                   fontSize: 15,
@@ -142,6 +161,7 @@ class WatchlistRow extends StatelessWidget {
                   quote.change24hPercent,
                   withSign: false,
                 ),
+                widthTemplate: _percentTemplate,
               ),
             ],
           ),

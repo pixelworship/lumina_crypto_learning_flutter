@@ -227,7 +227,15 @@ class _CustomChartState extends State<_CustomChart>
         ),
       );
     }
-    final TextStyle labelStyle = t.typography.labelSm.copyWith(
+    // Y-axis labels are live prices and X-axis labels are
+    // timestamps — both benefit from a fixed glyph advance so the
+    // axis gutter doesn't wobble as values tick. Drive them off the
+    // mono numeric scale, then preserve the label-size metrics with
+    // explicit overrides so we don't shrink the gutter.
+    final TextStyle labelStyle = t.typography.numericSm.copyWith(
+      fontSize: 10,
+      fontWeight: FontWeight.w700,
+      height: 1.2,
       color: t.colors.contentTertiary,
       letterSpacing: 0.4,
     );

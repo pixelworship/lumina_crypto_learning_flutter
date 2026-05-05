@@ -2,12 +2,15 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_demo/data/models/fill.dart';
+import 'package:flutter_demo/data/models/market_event.dart';
 import 'package:flutter_demo/data/models/tick.dart';
+import 'package:flutter_demo/data/repositories/chart_events_repository.dart';
 import 'package:flutter_demo/data/repositories/fill_repository.dart';
 import 'package:flutter_demo/data/repositories/historical_tick_repository.dart';
 import 'package:flutter_demo/data/repositories/tick_repository.dart';
 import 'package:flutter_demo/data/repositories/trade_repository.dart';
 import 'package:flutter_demo/data/services/asset_catalog.dart';
+import 'package:flutter_demo/data/services/chart_events_api.dart';
 import 'package:flutter_demo/data/services/fill_storage.dart';
 import 'package:flutter_demo/data/services/live_price_feed.dart';
 import 'package:flutter_demo/presentation/blocs/chart/chart_bloc.dart';
@@ -24,6 +27,30 @@ class _MockTickRepository extends Mock implements TickRepository {}
 
 class _MockHistoricalTickRepository extends Mock
     implements HistoricalTickRepository {}
+
+/// Stub events API — the e2e test asserts on fills, not events. We
+/// just need both network shapes (initial window fetch + delta poll)
+/// to no-op without making real HTTP requests.
+class _StubChartEventsApi implements ChartEventsApi {
+  @override
+  Future<List<MarketEvent>> fetchEventsInRange({
+    required String symbol,
+    required DateTime from,
+    required DateTime to,
+    int limit = 200,
+  }) async {
+    return const <MarketEvent>[];
+  }
+
+  @override
+  Future<List<MarketEvent>> fetchEventsSince({
+    required String symbol,
+    required DateTime since,
+    int limit = 500,
+  }) async {
+    return const <MarketEvent>[];
+  }
+}
 
 /// End-to-end programmatic stand-in for the spec's manual QA pass.
 ///
@@ -77,6 +104,7 @@ void main() {
         StreamController<Tick>.broadcast();
     when(() => tickRepo.watchTicks(any()))
         .thenAnswer((_) => tickStream.stream);
+    when(() => tickRepo.priceOffset(any())).thenReturn(0.0);
     final _MockHistoricalTickRepository historicalRepo =
         _MockHistoricalTickRepository();
     when(
@@ -98,7 +126,11 @@ void main() {
       repository: tickRepo,
       historicalRepository: historicalRepo,
       fillRepository: fillRepo,
+      eventsRepository: ChartEventsRepository(api: _StubChartEventsApi()),
       initialSymbol: 'BTC',
+      // Disable the events poller — this e2e exercises the fills
+      // path, and a periodic timer would leak past the harness.
+      eventPollInterval: null,
     );
     final TradeBloc tradeBloc = TradeBloc(
       tradeRepository: tradeRepo,

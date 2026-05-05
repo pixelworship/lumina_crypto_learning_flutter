@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'data/repositories/chart_events_repository.dart';
 import 'data/repositories/fill_repository.dart';
 import 'data/repositories/historical_tick_repository.dart';
 import 'data/repositories/market_repository.dart';
@@ -9,6 +10,7 @@ import 'data/repositories/tick_repository.dart';
 import 'data/repositories/trade_repository.dart';
 import 'data/services/api_service.dart';
 import 'data/services/asset_catalog.dart';
+import 'data/services/chart_events_api.dart';
 import 'data/services/historical_price_api.dart';
 import 'data/services/historical_tick_cache.dart';
 import 'data/services/live_price_feed.dart';
@@ -100,8 +102,15 @@ class LuminaApp extends StatelessWidget {
     // Per-asset live mini-sparklines for the markets + watchlist
     // rows. Owns one rolling buffer per symbol; subscribes once to
     // the price feed and broadcasts row-local updates via
-    // ValueListenable so per-row repaints stay surgical.
-    final SparklineFeed sparklineFeed = SparklineFeed(feed: priceFeed);
+    // ValueListenable so per-row repaints stay surgical. The
+    // initial 24h shape is seeded from the warehouse api (same
+    // surface the candlestick chart pulls from), with the same
+    // 250ms latency baked in — rows render a shimmer placeholder
+    // until the response resolves.
+    final SparklineFeed sparklineFeed = SparklineFeed(
+      feed: priceFeed,
+      historicalApi: historicalApi,
+    );
 
     // User fills (executed purchases). Production main wires a
     // Hive-backed [LocalFillRepository] via the override; widget
@@ -146,6 +155,23 @@ class LuminaApp extends StatelessWidget {
           create: (BuildContext ctx) => CachedHistoricalTickRepository(
             api: ctx.read<HistoricalPriceApi>(),
             cache: ctx.read<HistoricalTickCache>(),
+          ),
+        ),
+        // Chart events come from the Express API in `_x/api`, which
+        // proxies the Supabase `chart_events` table. Override the base
+        // URL with `--dart-define=EVENTS_API_BASE_URL=http://10.0.2.2:4001`
+        // when running on an Android emulator.
+        RepositoryProvider<ChartEventsApi>(
+          create: (_) => HttpChartEventsApi(
+            baseUrl: const String.fromEnvironment(
+              'EVENTS_API_BASE_URL',
+              defaultValue: 'http://localhost:4001',
+            ),
+          ),
+        ),
+        RepositoryProvider<ChartEventsRepository>(
+          create: (BuildContext ctx) => ChartEventsRepository(
+            api: ctx.read<ChartEventsApi>(),
           ),
         ),
         RepositoryProvider<FillRepository>(

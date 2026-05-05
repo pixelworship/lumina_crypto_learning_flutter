@@ -55,9 +55,14 @@ class LuminaChangePill extends StatelessWidget {
     parts.add('($pctText)');
     if (suffix != null) parts.add(suffix!);
 
+    // Route through `numericSm` so the pill paints in JetBrains Mono
+    // — every digit, comma, period, and `%` has the same advance,
+    // which keeps adjacent rows from jiggling each time the value
+    // ticks. Sizes are pinned via `copyWith(fontSize: ...)` to the
+    // pre-mono values so the surrounding layout stays unchanged.
     final TextStyle textStyle = (size == LuminaChangePillSize.sm
-            ? t.typography.bodySm
-            : t.typography.bodySm.copyWith(fontSize: 12))
+            ? t.typography.numericSm.copyWith(fontSize: 14)
+            : t.typography.numericSm.copyWith(fontSize: 12))
         .copyWith(color: fg, fontWeight: FontWeight.w600);
 
     return Container(

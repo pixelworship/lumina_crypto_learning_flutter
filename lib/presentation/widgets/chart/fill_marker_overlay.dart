@@ -307,9 +307,10 @@ class _MoreBadge extends StatelessWidget {
           alignment: Alignment.center,
           child: Text(
             '+$count',
-            style: t.typography.labelSm.copyWith(
+            style: t.typography.numericSm.copyWith(
               color: t.colors.contentPrimary,
               fontSize: 9,
+              fontWeight: FontWeight.w700,
               letterSpacing: 0,
               height: 1.0,
             ),
@@ -339,7 +340,10 @@ class _FillMenuItem extends StatelessWidget {
           constraints: const BoxConstraints(maxWidth: 240),
           child: Text(
             _shortFillLabel(fill),
-            style: t.typography.bodySm.copyWith(
+            // Mono so the price column lines up across rows when a
+            // cluster expands ("@ $63,940" / "@ $63,941" / "@ $63,938").
+            style: t.typography.numericSm.copyWith(
+              fontSize: 14,
               color: t.colors.contentPrimary,
               fontWeight: FontWeight.w600,
             ),
@@ -520,7 +524,11 @@ class _Row extends StatelessWidget {
         ),
         Text(
           value,
-          style: t.typography.bodyMd.copyWith(
+          // Right-aligned values in this row are prices and
+          // quantities — render them mono so the dialog's value
+          // column doesn't reflow when a fill summary updates.
+          style: t.typography.numericSm.copyWith(
+            fontSize: 14,
             color: t.colors.contentPrimary,
             fontWeight: emphasize ? FontWeight.w700 : FontWeight.w500,
           ),

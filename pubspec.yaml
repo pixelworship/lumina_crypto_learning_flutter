@@ -35,6 +35,13 @@ dependencies:
   hive_flutter: ^1.1.0
   path_provider: ^2.1.5
 
+  # HTTP client for the Lumina events API (`_x/api`). Small, official.
+  http: ^1.2.2
+
+  # Open external URLs from the event detail modal (Supabase events
+  # may include a `link` field pointing at a source article).
+  url_launcher: ^6.3.1
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

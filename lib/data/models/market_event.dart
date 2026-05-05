@@ -4,9 +4,10 @@ import 'package:flutter/material.dart';
 /// A discrete real-world event (earnings, tweet, regulator filing, ...) that
 /// is overlaid on the price timeline as a small badge.
 ///
-/// Instances are created from a `MarketEventTemplate` in
-/// `data/services/market_event_catalog.dart` — the template provides the
-/// look and copy, the instance pins it to a specific [timestamp].
+/// Sourced from the Lumina events API (`_x/api`, backed by the Supabase
+/// `chart_events` table). The API stores `id`, `asset`, `timestamp`,
+/// `title`, `body`, `link`; the `label`/`color`/`icon` fields are
+/// presentation-only defaults filled in by the API client.
 class MarketEvent extends Equatable {
   const MarketEvent({
     required this.id,
@@ -14,11 +15,13 @@ class MarketEvent extends Equatable {
     required this.label,
     required this.color,
     required this.title,
-    required this.body,
+    this.body,
+    this.link,
     this.icon,
   });
 
-  /// Unique id (template + timestamp), used for keying and modal routing.
+  /// Unique id, used for keying and modal routing. Stringified from the
+  /// `chart_events.id` int8 column at the API boundary.
   final String id;
   final DateTime timestamp;
 
@@ -29,11 +32,14 @@ class MarketEvent extends Equatable {
   /// Badge background colour.
   final Color color;
 
-  /// Modal title, e.g. "Earnings call".
+  /// Modal title, e.g. "Spot ETF inflow".
   final String title;
 
-  /// Modal body, e.g. "Q4 EPS $1.32 vs $1.21 est.".
-  final String body;
+  /// Modal body. Nullable — the column is optional in `chart_events`.
+  final String? body;
+
+  /// Optional source URL — opened from the event detail modal.
+  final String? link;
 
   /// Optional icon shown inside the badge instead of [label]. Used for
   /// brand-y events like an X/Twitter post.
@@ -41,5 +47,5 @@ class MarketEvent extends Equatable {
 
   @override
   List<Object?> get props =>
-      <Object?>[id, timestamp, label, color, title, body, icon];
+      <Object?>[id, timestamp, label, color, title, body, link, icon];
 }

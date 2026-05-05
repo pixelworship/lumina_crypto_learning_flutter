@@ -137,6 +137,7 @@ class MockApiService implements ApiService {
       totalBalanceUsd: portfolio.totalValueUsd,
       change24hUsd: portfolio.changeTodayUsd,
       change24hPercent: portfolio.changeTodayPercent,
+      valueAt24hAgo: portfolio.totalValueAt24hAgo,
       sparkline: _generateSparkline(
         startPrice: portfolio.totalValueUsd * 0.96,
         endPrice: portfolio.totalValueUsd,
@@ -189,6 +190,7 @@ class MockApiService implements ApiService {
       totalValueUsd: total,
       changeTodayUsd: change24h,
       changeTodayPercent: change24hPercent,
+      totalValueAt24hAgo: yesterdayTotal,
       holdings: holdings.map((PortfolioHolding h) {
         return PortfolioHolding(
           asset: h.asset,
@@ -247,6 +249,7 @@ class MockApiService implements ApiService {
       quote: quote,
       price: currentPrice,
       changePercent: changePercent,
+      priceAt24hAgo: yesterdayPrice,
       range: range,
       priceHistory: history,
       bids: bids,
@@ -347,8 +350,13 @@ class MockApiService implements ApiService {
   /// (a real backend would do the equivalent at the catalog layer).
   final Map<int, CryptoAsset> _generatedByRank = <int, CryptoAsset>{};
 
-  /// Builds a [CryptoQuote] for [symbol] using the feed for both the
-  /// current and 24-hour-ago price.
+  /// Builds a [CryptoQuote] for [symbol].
+  ///
+  /// The current price comes from the live ticker; the 24-hour anchor
+  /// is sampled from the same noise curve the warehouse historical
+  /// API uses, but it's only ever read inside this API service —
+  /// callers receive the anchor pre-baked into the response and never
+  /// touch [LivePriceFeed.priceAt] themselves.
   CryptoQuote _quoteFor(String symbol, int rank) {
     final double currentPrice = _priceFeed.currentPrice(symbol);
     final DateTime yesterday = _clock.now().subtract(const Duration(hours: 24));
@@ -363,6 +371,7 @@ class MockApiService implements ApiService {
       price: currentPrice,
       change24hPercent: change24hPercent,
       change24hAbsolute: change24hAbsolute,
+      priceAt24hAgo: yesterdayPrice,
     );
   }
 

@@ -37,6 +37,7 @@ export 'components/feedback/lumina_delta.dart';
 export 'components/feedback/lumina_empty_state.dart';
 export 'components/feedback/lumina_error_view.dart';
 export 'components/feedback/lumina_loading_indicator.dart';
+export 'components/feedback/lumina_numeric_text.dart';
 export 'components/feedback/lumina_skeleton.dart';
 export 'components/inputs/lumina_text_field.dart';
 export 'components/layout/lumina_badge.dart';

@@ -253,5 +253,97 @@ void main() {
         expect(cache.tickCount, 0);
       });
     });
+
+    group('sorted-merge invariants', () {
+      // The cache replaced its addAll+sort with an O(n+m) two-way
+      // merge over pre-sorted runs (see _SymbolCache._mergeSorted).
+      // These tests pin the invariants the chart relies on:
+      //   - relative ordering preserved after every store;
+      //   - existing entries never dropped (regression for the
+      //     `..clear()..addAll(_mergeSorted(_ticks, ...))` cascade
+      //     bug, where _mergeSorted ran AFTER clear and silently
+      //     consumed an empty list);
+      //   - interleaved timestamps interleave correctly.
+      test(
+        'preserves chronological order across multiple stores',
+        () {
+          final HistoricalTickCache cache = HistoricalTickCache();
+          cache.store(
+            symbol: 'BTC',
+            ticks: <Tick>[_tick(2), _tick(4)],
+            rangeStart: _at(0),
+            rangeEnd: _at(5),
+          );
+          cache.store(
+            symbol: 'BTC',
+            ticks: <Tick>[_tick(6), _tick(8)],
+            rangeStart: _at(5),
+            rangeEnd: _at(9),
+          );
+          final List<int> hours = cache
+              .lookup(symbol: 'BTC', start: _at(0), end: _at(10))
+              .hits
+              .map((Tick t) => t.timestamp.hour)
+              .toList();
+          expect(hours, <int>[2, 4, 6, 8]);
+        },
+      );
+
+      test(
+        'second store with earlier ticks interleaves rather than '
+        'appending',
+        () {
+          final HistoricalTickCache cache = HistoricalTickCache();
+          // Store the LATER range first.
+          cache.store(
+            symbol: 'BTC',
+            ticks: <Tick>[_tick(6), _tick(8)],
+            rangeStart: _at(5),
+            rangeEnd: _at(9),
+          );
+          // Then prepend an EARLIER range. The merge must interleave
+          // rather than just append, otherwise the chart would emit
+          // out-of-order candles on history extension.
+          cache.store(
+            symbol: 'BTC',
+            ticks: <Tick>[_tick(2), _tick(4)],
+            rangeStart: _at(0),
+            rangeEnd: _at(5),
+          );
+          final List<int> hours = cache
+              .lookup(symbol: 'BTC', start: _at(0), end: _at(10))
+              .hits
+              .map((Tick t) => t.timestamp.hour)
+              .toList();
+          expect(hours, <int>[2, 4, 6, 8]);
+        },
+      );
+
+      test(
+        'never drops existing entries when the second store '
+        'introduces overlapping timestamps',
+        () {
+          final HistoricalTickCache cache = HistoricalTickCache();
+          cache.store(
+            symbol: 'BTC',
+            ticks: <Tick>[_tick(2), _tick(4), _tick(6)],
+            rangeStart: _at(0),
+            rangeEnd: _at(7),
+          );
+          cache.store(
+            symbol: 'BTC',
+            ticks: <Tick>[_tick(3), _tick(5)],
+            rangeStart: _at(0),
+            rangeEnd: _at(7),
+          );
+          final List<int> hours = cache
+              .lookup(symbol: 'BTC', start: _at(0), end: _at(10))
+              .hits
+              .map((Tick t) => t.timestamp.hour)
+              .toList();
+          expect(hours, <int>[2, 3, 4, 5, 6]);
+        },
+      );
+    });
   });
 }

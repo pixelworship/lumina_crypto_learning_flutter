@@ -2,9 +2,8 @@ import 'package:equatable/equatable.dart';
 
 import '../../../data/models/timeframe.dart';
 
-/// Public events accepted by `ChartBloc`. Two private events
-/// (`_TickReceived`, `_MarketEventTimerTicked`) live alongside the bloc
-/// itself in `chart_bloc.dart`.
+/// Public events accepted by `ChartBloc`. The private `_TickReceived`
+/// event lives alongside the bloc itself in `chart_bloc.dart`.
 abstract class ChartEvent extends Equatable {
   const ChartEvent();
 
@@ -93,10 +92,4 @@ class BackfillRequested extends ChartEvent {
 /// span to whatever is currently loaded, doubling the available backlog.
 class HistoryExtendRequested extends ChartEvent {
   const HistoryExtendRequested();
-}
-
-/// Asks the bloc to spawn a randomly-picked `MarketEvent` at "now". Wired
-/// to both the periodic timer and the debug-drop FAB.
-class MarketEventSpawnRequested extends ChartEvent {
-  const MarketEventSpawnRequested();
 }

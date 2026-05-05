@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:collection';
-import 'dart:math';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -12,11 +11,11 @@ import '../../../data/models/market_event.dart';
 import '../../../data/models/pause_gap.dart';
 import '../../../data/models/tick.dart';
 import '../../../data/models/timeframe.dart';
+import '../../../data/repositories/chart_events_repository.dart';
 import '../../../data/repositories/fill_repository.dart';
 import '../../../data/repositories/historical_tick_repository.dart';
 import '../../../data/repositories/tick_repository.dart';
 import '../../../data/services/candle_aggregator.dart';
-import '../../../data/services/market_event_catalog.dart';
 import 'chart_event.dart';
 import 'chart_state.dart';
 
@@ -47,27 +46,31 @@ const double _maxTickSpeed = 32.0;
 const double _minPriceOffset = -1000.0;
 const double _maxPriceOffset = 1000.0;
 
-/// Period between auto-spawned market events. Strictly every five minutes
-/// — no jitter — so users always know when to expect the next marker.
-const Duration _eventTickInterval = Duration(minutes: 5);
-
-/// Cap on retained events. Old entries are trimmed off the front so the
-/// list doesn't grow unbounded over a long session.
+/// Cap on events fetched per asset. Mirrors the API's default `limit`
+/// and is well below its 1000 ceiling — chart marker density beyond
+/// this is unreadable anyway.
 const int _maxEvents = 200;
+
+/// How often we ask the events API for newly-created rows. Each poll
+/// is a delta query (`?from=<latest+1ms>`) so the payload is empty
+/// when nothing has changed; safe to run aggressively.
+const Duration _defaultEventPollInterval = Duration(seconds: 1);
 
 class ChartBloc extends Bloc<ChartEvent, ChartState> {
   ChartBloc({
     required TickRepository repository,
     required HistoricalTickRepository historicalRepository,
     required FillRepository fillRepository,
+    required ChartEventsRepository eventsRepository,
     CandleAggregator aggregator = const CandleAggregator(),
-    Random? random,
     String initialSymbol = 'BTC',
+    Duration? eventPollInterval = _defaultEventPollInterval,
   }) : _repository = repository,
        _historicalRepository = historicalRepository,
        _fillRepository = fillRepository,
+       _eventsRepository = eventsRepository,
        _aggregator = aggregator,
-       _random = random ?? Random(),
+       _eventPollInterval = eventPollInterval,
        super(ChartState.initial(symbol: initialSymbol)) {
     on<ChartStarted>(_onStarted);
     on<ChartStopped>(_onStopped);
@@ -82,16 +85,15 @@ class ChartBloc extends Bloc<ChartEvent, ChartState> {
     on<PauseToggled>(_onPauseToggled);
     on<BackfillRequested>(_onBackfillRequested);
     on<HistoryExtendRequested>(_onHistoryExtendRequested);
-    on<MarketEventSpawnRequested>(_onMarketEventSpawnRequested);
-    on<_MarketEventTimerTicked>(_onMarketEventTimerTicked);
+    on<_EventsPollTicked>(_onEventsPollTicked);
     on<_FillsUpdated>(_onFillsUpdated);
   }
 
   final TickRepository _repository;
   final HistoricalTickRepository _historicalRepository;
   final FillRepository _fillRepository;
+  final ChartEventsRepository _eventsRepository;
   final CandleAggregator _aggregator;
-  final Random _random;
   final Queue<Tick> _tickHistory = Queue<Tick>();
 
   /// Resolved pause periods. Re-applied as `Candle.gap` slots whenever
@@ -99,30 +101,50 @@ class ChartBloc extends Bloc<ChartEvent, ChartState> {
   /// visually across the session.
   final List<PauseGap> _pastGaps = <PauseGap>[];
 
+  /// Wall-clock interval between events polls. Null disables polling
+  /// entirely (used by tests so periodic timers don't outlive the
+  /// test harness).
+  final Duration? _eventPollInterval;
+
   StreamSubscription<Tick>? _subscription;
   StreamSubscription<List<Fill>>? _fillSubscription;
-  Timer? _eventTimer;
+  Timer? _eventPollTimer;
 
-  Future<void> _onStarted(
-    ChartStarted event,
-    Emitter<ChartState> emit,
-  ) async {
+  /// Watermark for the events delta poller. Set to the window's `to`
+  /// after a successful range fetch (so the poller picks up where
+  /// the window left off), then advanced to the latest event's
+  /// timestamp on every poll that returns rows. Null until the
+  /// initial load completes.
+  DateTime? _eventCursor;
+
+  Future<void> _onStarted(ChartStarted event, Emitter<ChartState> emit) async {
     if (state.isStreaming) return;
     final String symbol = event.symbol ?? state.symbol;
-    emit(state.copyWith(isStreaming: true, symbol: symbol));
+    // Sync the bloc's tracked offset with the shared feed's actual
+    // value before any data is loaded. The chart bloc is route-
+    // scoped but the feed is app-scoped, so a previously-dialed
+    // offset survives navigation. Without this sync, `state.priceOffset`
+    // would start at 0 while the feed reports a non-zero value —
+    // the next user dial would then overwrite (rather than increment)
+    // the feed offset, briefly spiking the chart and then collapsing
+    // it as live ticks arrive at the new (lower) absolute price.
+    emit(
+      state.copyWith(
+        isStreaming: true,
+        symbol: symbol,
+        priceOffset: _repository.priceOffset(symbol),
+      ),
+    );
     await _loadFor(symbol, emit);
   }
 
-  Future<void> _onStopped(
-    ChartStopped event,
-    Emitter<ChartState> emit,
-  ) async {
+  Future<void> _onStopped(ChartStopped event, Emitter<ChartState> emit) async {
     await _subscription?.cancel();
     _subscription = null;
     await _fillSubscription?.cancel();
     _fillSubscription = null;
-    _eventTimer?.cancel();
-    _eventTimer = null;
+    _eventPollTimer?.cancel();
+    _eventPollTimer = null;
     emit(state.copyWith(isStreaming: false));
   }
 
@@ -130,8 +152,11 @@ class ChartBloc extends Bloc<ChartEvent, ChartState> {
     ChartSymbolChanged event,
     Emitter<ChartState> emit,
   ) async {
-    MrmTrace.mark(30, 'ChartBloc._onSymbolChanged',
-        'from=${state.symbol} to=${event.symbol}');
+    MrmTrace.mark(
+      30,
+      'ChartBloc._onSymbolChanged',
+      'from=${state.symbol} to=${event.symbol}',
+    );
     if (event.symbol == state.symbol) {
       MrmTrace.mark(31, 'ChartBloc.symbolChanged short-circuit (same symbol)');
       return;
@@ -145,13 +170,22 @@ class ChartBloc extends Bloc<ChartEvent, ChartState> {
     _subscription = null;
     await _fillSubscription?.cancel();
     _fillSubscription = null;
+    // Stop polling against the old symbol; `_loadFor` re-arms the
+    // timer once the new symbol's initial events land. Drop the
+    // cursor too — the new symbol gets a fresh one in `_loadFor`.
+    _eventPollTimer?.cancel();
+    _eventPollTimer = null;
+    _eventCursor = null;
     _tickHistory.clear();
     _pastGaps.clear();
 
     // Step 1: clear the previous asset's chart immediately and surface
     // a loading state. Setting `candles: []` causes the chart widget
     // to render a full-screen loading indicator until step 2 fills
-    // in cached data (if any).
+    // in cached data (if any). Re-sync `priceOffset` to whatever the
+    // shared feed reports for the new symbol — different assets can
+    // hold independent debug offsets, so carrying the previous
+    // symbol's value would desync the bloc from the feed.
     emit(
       state.copyWith(
         symbol: event.symbol,
@@ -162,6 +196,7 @@ class ChartBloc extends Bloc<ChartEvent, ChartState> {
         clearPauseStartedAt: true,
         isPaused: false,
         isLoadingHistory: true,
+        priceOffset: _repository.priceOffset(event.symbol),
       ),
     );
     MrmTrace.mark(31, 'ChartBloc emit clear');
@@ -180,23 +215,26 @@ class ChartBloc extends Bloc<ChartEvent, ChartState> {
     MrmTrace.mark(32, 'ChartBloc cache peek done', 'cached=${cached.length}');
     if (cached.isNotEmpty) {
       _tickHistory.addAll(cached);
-      MrmTrace.mark(33, 'ChartBloc cache-hit rebuild start',
-          'ticks=${_tickHistory.length}');
+      MrmTrace.mark(
+        33,
+        'ChartBloc cache-hit rebuild start',
+        'ticks=${_tickHistory.length}',
+      );
       final List<Candle> rebuiltCached = await _rebuildOffMain(
         ticks: _tickHistory.toList(growable: false),
         timeframe: state.timeframe,
       );
-      MrmTrace.mark(34, 'ChartBloc cache-hit rebuild done',
-          'candles=${rebuiltCached.length}');
+      MrmTrace.mark(
+        34,
+        'ChartBloc cache-hit rebuild done',
+        'candles=${rebuiltCached.length}',
+      );
       // Guard against the user switching assets again mid-rebuild —
       // bloc events serialize so this is rare, but the explicit
       // check keeps stale candles from leaking into the new symbol.
       if (state.symbol != event.symbol) return;
       emit(
-        state.copyWith(
-          candles: rebuiltCached,
-          lastPrice: cached.last.price,
-        ),
+        state.copyWith(candles: rebuiltCached, lastPrice: cached.last.price),
       );
       MrmTrace.mark(35, 'ChartBloc cache-hit emit');
     }
@@ -213,10 +251,10 @@ class ChartBloc extends Bloc<ChartEvent, ChartState> {
 
   /// Shared loading path for both `ChartStarted` and
   /// `ChartSymbolChanged`: fetches the most recent
-  /// [_historyPageWindow] of history, rebuilds candles, seeds market
-  /// events, and (re-)subscribes to the live tick stream for
-  /// [symbol]. Older windows are loaded on demand via
-  /// `HistoryExtendRequested` (paginated, cache-friendly).
+  /// [_historyPageWindow] of ticks, rebuilds candles, fetches the
+  /// matching events window from the API, and (re-)subscribes to the
+  /// live tick stream for [symbol]. Older windows are loaded on
+  /// demand via `HistoryExtendRequested` (paginated, cache-friendly).
   ///
   /// Toggles [ChartState.isLoadingHistory] across the await so the
   /// chart UI can render a small "loading more" overlay even when
@@ -226,10 +264,28 @@ class ChartBloc extends Bloc<ChartEvent, ChartState> {
     emit(state.copyWith(isLoadingHistory: true));
 
     final DateTime now = DateTime.now();
+    final DateTime windowStart = now.subtract(_historyPageWindow);
+
+    // Kick the events fetch off in parallel — it's an independent
+    // network call to a different service, so there's no reason it
+    // should serialize behind the tick fetch + rebuild.
+    final Future<List<MarketEvent>> eventsFuture = _eventsRepository
+        .fetchEventsInRange(
+          symbol: symbol,
+          from: windowStart,
+          to: now,
+          limit: _maxEvents,
+        );
+    // Cursor for the delta poller — anything created strictly after
+    // `now` was not part of this window fetch and is the poller's
+    // responsibility from here on. Set it before any async gap so a
+    // poll that sneaks in mid-load can still make a sensible call.
+    _eventCursor = now;
+
     MrmTrace.mark(37, 'ChartBloc.fetchTicks await');
     final List<Tick> history = await _historicalRepository.fetchTicks(
       symbol: symbol,
-      start: now.subtract(_historyPageWindow),
+      start: windowStart,
       end: now,
     );
     MrmTrace.mark(38, 'ChartBloc.fetchTicks done', 'ticks=${history.length}');
@@ -239,18 +295,25 @@ class ChartBloc extends Bloc<ChartEvent, ChartState> {
     while (_tickHistory.length > _maxTickHistory) {
       _tickHistory.removeFirst();
     }
-    MrmTrace.mark(39, 'ChartBloc rebuild start', 'ticks=${_tickHistory.length}');
+    MrmTrace.mark(
+      39,
+      'ChartBloc rebuild start',
+      'ticks=${_tickHistory.length}',
+    );
     final List<Candle> candles = await _rebuildOffMain(
       ticks: _tickHistory.toList(growable: false),
       timeframe: state.timeframe,
     );
     MrmTrace.mark(40, 'ChartBloc rebuild done', 'candles=${candles.length}');
     if (state.symbol != symbol) return;
-    final List<MarketEvent> seededEvents = _seedHistoricalEvents(history);
+
+    final List<MarketEvent> events = await eventsFuture;
+    if (state.symbol != symbol) return;
+
     emit(
       state.copyWith(
         candles: candles,
-        events: seededEvents,
+        events: events,
         lastPrice: history.isNotEmpty ? history.last.price : null,
         isLoadingHistory: false,
       ),
@@ -258,9 +321,9 @@ class ChartBloc extends Bloc<ChartEvent, ChartState> {
     MrmTrace.mark(41, 'ChartBloc emit success');
 
     await _subscription?.cancel();
-    _subscription = _repository.watchTicks(symbol).listen(
-      (Tick tick) => add(_TickReceived(tick)),
-    );
+    _subscription = _repository
+        .watchTicks(symbol)
+        .listen((Tick tick) => add(_TickReceived(tick)));
     MrmTrace.end(42, 'ChartBloc subscribed (asset-tap flow complete)');
 
     // Per-symbol fills stream. The repository's `watchFills` replays
@@ -269,11 +332,11 @@ class ChartBloc extends Bloc<ChartEvent, ChartState> {
     // explicit `getFills` call. Subsequent purchases broadcast fresh
     // snapshots through the same stream.
     await _fillSubscription?.cancel();
-    _fillSubscription = _fillRepository.watchFills(symbol).listen(
-      (List<Fill> fills) => add(_FillsUpdated(fills)),
-    );
+    _fillSubscription = _fillRepository
+        .watchFills(symbol)
+        .listen((List<Fill> fills) => add(_FillsUpdated(fills)));
 
-    _scheduleNextEventTick();
+    _scheduleEventPoll();
   }
 
   void _onTickReceived(_TickReceived event, Emitter<ChartState> emit) {
@@ -303,19 +366,15 @@ class ChartBloc extends Bloc<ChartEvent, ChartState> {
     Emitter<ChartState> emit,
   ) async {
     if (event.timeframe == state.timeframe) return;
-    final List<Candle> rebuilt = await _rebuildOffMain(
+    final List<Candle> withGaps = await _rebuildOffMain(
       ticks: _tickHistory.toList(growable: false),
       timeframe: event.timeframe,
+      gaps: _pastGaps,
     );
-    final List<Candle> withGaps =
-        _aggregator.mergeGaps(rebuilt, _pastGaps, event.timeframe);
     emit(state.copyWith(timeframe: event.timeframe, candles: withGaps));
   }
 
-  void _onTickSpeedChanged(
-    TickSpeedChanged event,
-    Emitter<ChartState> emit,
-  ) {
+  void _onTickSpeedChanged(TickSpeedChanged event, Emitter<ChartState> emit) {
     final double clamped = event.multiplier.clamp(_minTickSpeed, _maxTickSpeed);
     if (clamped == state.tickSpeed) return;
     _repository.setSpeedMultiplier(clamped);
@@ -329,66 +388,28 @@ class ChartBloc extends Bloc<ChartEvent, ChartState> {
     final double clamped = event.offset.clamp(_minPriceOffset, _maxPriceOffset);
     if (clamped == state.priceOffset) return;
 
-    final double delta = clamped - state.priceOffset;
-
-    // (1) Push the new offset into the live feed so live ticks +
-    //     synchronous `currentPrice` reads pick it up immediately
-    //     (the feed broadcasts a fresh price update internally).
+    // Hand the dial to the live feed and walk away. Critically, we
+    // do NOT shift `_tickHistory`, do NOT invalidate the historical
+    // cache, and do NOT rebuild candles here — the past must stay
+    // bit-for-bit identical to what was already on screen.
+    //
+    // The feed records the dial as a timestamped `OffsetEvent`. Its
+    // `priceAt(t)` is then time-aware: queries for past `t` see no
+    // offset (the event hadn't happened yet), and live ticks emitted
+    // from this moment forward are baked at the new offset. The
+    // visible chart picks the change up naturally on the next live
+    // tick — `_aggregator.foldTick` opens or extends the current
+    // candle at the new price, producing a clean step at the dial
+    // moment while every prior candle is left untouched.
     _repository.setPriceOffset(state.symbol, clamped);
-
-    // (2) Invalidate the historical cache for this symbol so the
-    //     next `fetchTicks` returns freshly-synthesized data with
-    //     the new offset baked in — instead of serving stale
-    //     pre-offset ticks the next time the user revisits.
-    _historicalRepository.invalidate(state.symbol);
-
-    // (3) Shift every tick already in the bloc's working set by the
-    //     delta. This is mathematically identical to refetching the
-    //     whole window with the new offset (`oldTickPrice + delta
-    //     == noise(t) + newOffset`) but instant and zero-cost — so
-    //     the entire visible chart shifts on the next frame,
-    //     matching the new live price.
-    if (delta != 0 && _tickHistory.isNotEmpty) {
-      final List<Tick> shifted = _tickHistory
-          .map(
-            (Tick t) => Tick(
-              price: t.price + delta,
-              side: t.side,
-              volume: t.volume,
-              timestamp: t.timestamp,
-            ),
-          )
-          .toList(growable: false);
-      _tickHistory
-        ..clear()
-        ..addAll(shifted);
-    }
-
-    final List<Candle> rebuilt = await _rebuildOffMain(
-      ticks: _tickHistory.toList(growable: false),
-      timeframe: state.timeframe,
-    );
-    final List<Candle> withGaps =
-        _aggregator.mergeGaps(rebuilt, _pastGaps, state.timeframe);
-
-    emit(
-      state.copyWith(
-        priceOffset: clamped,
-        candles: withGaps,
-        lastPrice:
-            _tickHistory.isNotEmpty ? _tickHistory.last.price : null,
-      ),
-    );
+    emit(state.copyWith(priceOffset: clamped));
   }
 
   void _onGlowToggled(GlowToggled event, Emitter<ChartState> emit) {
     emit(state.copyWith(glowEnabled: !state.glowEnabled));
   }
 
-  void _onAutoScaleToggled(
-    AutoScaleToggled event,
-    Emitter<ChartState> emit,
-  ) {
+  void _onAutoScaleToggled(AutoScaleToggled event, Emitter<ChartState> emit) {
     emit(state.copyWith(autoScaleEnabled: !state.autoScaleEnabled));
   }
 
@@ -396,9 +417,7 @@ class ChartBloc extends Bloc<ChartEvent, ChartState> {
     VolumeOverlayToggled event,
     Emitter<ChartState> emit,
   ) {
-    emit(state.copyWith(
-      volumeOverlayEnabled: !state.volumeOverlayEnabled,
-    ));
+    emit(state.copyWith(volumeOverlayEnabled: !state.volumeOverlayEnabled));
   }
 
   void _onPauseToggled(PauseToggled event, Emitter<ChartState> emit) {
@@ -409,10 +428,7 @@ class ChartBloc extends Bloc<ChartEvent, ChartState> {
     // mark that gap visually with permanent "DATA UNAVAILABLE" slots.
     _repository.setPaused(next);
     if (next) {
-      emit(state.copyWith(
-        isPaused: true,
-        pauseStartedAt: DateTime.now(),
-      ));
+      emit(state.copyWith(isPaused: true, pauseStartedAt: DateTime.now()));
       return;
     }
 
@@ -428,11 +444,13 @@ class ChartBloc extends Bloc<ChartEvent, ChartState> {
       <PauseGap>[gap],
       state.timeframe,
     );
-    emit(state.copyWith(
-      isPaused: false,
-      clearPauseStartedAt: true,
-      candles: withGap,
-    ));
+    emit(
+      state.copyWith(
+        isPaused: false,
+        clearPauseStartedAt: true,
+        candles: withGap,
+      ),
+    );
   }
 
   Future<void> _onBackfillRequested(
@@ -470,17 +488,13 @@ class ChartBloc extends Bloc<ChartEvent, ChartState> {
 
     _pastGaps.removeWhere(gapsToFill.contains);
 
-    final List<Candle> rebuilt = await _rebuildOffMain(
+    final List<Candle> withRemainingGaps = await _rebuildOffMain(
       ticks: _tickHistory.toList(growable: false),
       timeframe: state.timeframe,
+      gaps: _pastGaps,
     );
-    final List<Candle> withRemainingGaps =
-        _aggregator.mergeGaps(rebuilt, _pastGaps, state.timeframe);
 
-    emit(state.copyWith(
-      candles: withRemainingGaps,
-      isBackfilling: false,
-    ));
+    emit(state.copyWith(candles: withRemainingGaps, isBackfilling: false));
   }
 
   Future<void> _onHistoryExtendRequested(
@@ -523,33 +537,36 @@ class ChartBloc extends Bloc<ChartEvent, ChartState> {
       _tickHistory.removeFirst();
     }
 
-    final List<Candle> rebuilt = await _rebuildOffMain(
+    final List<Candle> withGaps = await _rebuildOffMain(
       ticks: _tickHistory.toList(growable: false),
       timeframe: state.timeframe,
+      gaps: _pastGaps,
     );
-    final List<Candle> withGaps =
-        _aggregator.mergeGaps(rebuilt, _pastGaps, state.timeframe);
 
-    emit(state.copyWith(
-      candles: withGaps,
-      isExtendingHistory: false,
-    ));
-  }
+    // Refetch events spanning the new (wider) window so markers
+    // populate the freshly-revealed history. The API caps at 1000
+    // and the chart_events table is small, so we re-pull the full
+    // visible window rather than diff-merging. Reset the delta
+    // cursor to the new window's end so the poller picks up from
+    // there instead of double-fetching anything covered by the
+    // window query.
+    final DateTime windowEnd = DateTime.now();
+    final List<MarketEvent> events = await _eventsRepository
+        .fetchEventsInRange(
+          symbol: state.symbol,
+          from: _tickHistory.first.timestamp,
+          to: windowEnd,
+          limit: _maxEvents,
+        );
+    _eventCursor = windowEnd;
 
-  void _onMarketEventSpawnRequested(
-    MarketEventSpawnRequested event,
-    Emitter<ChartState> emit,
-  ) {
-    emit(state.copyWith(events: _appendEvent(state.events, DateTime.now())));
-  }
-
-  void _onMarketEventTimerTicked(
-    _MarketEventTimerTicked event,
-    Emitter<ChartState> emit,
-  ) {
-    if (!state.isStreaming) return;
-    emit(state.copyWith(events: _appendEvent(state.events, DateTime.now())));
-    _scheduleNextEventTick();
+    emit(
+      state.copyWith(
+        candles: withGaps,
+        events: events,
+        isExtendingHistory: false,
+      ),
+    );
   }
 
   /// Forwards a fresh per-symbol fills snapshot from
@@ -560,90 +577,156 @@ class ChartBloc extends Bloc<ChartEvent, ChartState> {
   /// circuiting when [event.fills] mentions a different symbol.
   void _onFillsUpdated(_FillsUpdated event, Emitter<ChartState> emit) {
     if (event.fills.isNotEmpty &&
-        event.fills.first.symbol.toUpperCase() !=
-            state.symbol.toUpperCase()) {
+        event.fills.first.symbol.toUpperCase() != state.symbol.toUpperCase()) {
       return;
     }
     emit(state.copyWith(fills: event.fills));
   }
 
-  /// Appends a freshly-rolled mock event to [existing], trimming oldest
-  /// entries past [_maxEvents]. Returns a new list.
-  List<MarketEvent> _appendEvent(
+  /// Periodic delta-fetch for newly-created `chart_events` rows.
+  ///
+  /// Hits `GET /v1/events/since?since=<cursor>`, which uses strict
+  /// greater-than semantics on the server — so the cursor is just
+  /// "the timestamp of the latest event we've ever seen" and never
+  /// needs an off-by-one fudge. Cursor is initialized in `_loadFor`
+  /// to the window-fetch's `to` and advanced here to the newest
+  /// event's timestamp on every successful poll, so the same row is
+  /// never re-fetched.
+  ///
+  /// (Deletions in the upstream table aren't visible through this
+  /// channel — a server-pushed feed would be needed for that. Not a
+  /// concern today since the dashboard is the only writer and edits
+  /// are append-only.)
+  Future<void> _onEventsPollTicked(
+    _EventsPollTicked event,
+    Emitter<ChartState> emit,
+  ) async {
+    // The bloc's event queue serializes handlers, so a poll can't
+    // overlap with `_loadFor` itself — but the timer might fire
+    // mid-load and queue this handler behind it. By the time we run
+    // the symbol may have changed (or the user may have stopped
+    // streaming); short-circuit without re-arming so we don't tail
+    // a torn-down session.
+    if (!state.isStreaming) return;
+    final DateTime? cursor = _eventCursor;
+    if (cursor == null) {
+      // Initial load hasn't completed yet — try again next tick.
+      _scheduleEventPoll();
+      return;
+    }
+    final String symbol = state.symbol;
+
+    final List<MarketEvent> incoming = await _eventsRepository
+        .fetchEventsSince(
+          symbol: symbol,
+          since: cursor,
+        );
+    // Symbol could have switched out from under us while the await
+    // was in flight; the new symbol's _loadFor will re-arm the timer
+    // with its own cursor.
+    if (state.symbol != symbol) return;
+
+    if (incoming.isNotEmpty) {
+      final List<MarketEvent> merged = _mergeEvents(state.events, incoming);
+      // Always advance the cursor — even if the merged list length
+      // didn't change (e.g. a duplicate id slipped through), the
+      // server has confirmed there's nothing older worth re-fetching.
+      _eventCursor = incoming.last.timestamp;
+      if (merged.length != state.events.length) {
+        emit(state.copyWith(events: merged));
+      }
+    }
+
+    _scheduleEventPoll();
+  }
+
+  /// Returns a new sorted-ascending list combining [existing] with any
+  /// rows in [incoming] whose ids aren't already present. Trims to
+  /// [_maxEvents] from the front (oldest) so a long-running session
+  /// doesn't accumulate forever.
+  List<MarketEvent> _mergeEvents(
     List<MarketEvent> existing,
-    DateTime timestamp,
+    List<MarketEvent> incoming,
   ) {
-    final List<MarketEvent> next = List<MarketEvent>.from(existing)
-      ..add(randomMarketEvent(timestamp: timestamp, random: _random));
+    final Set<String> seen = <String>{
+      for (final MarketEvent e in existing) e.id,
+    };
+    final List<MarketEvent> additions = <MarketEvent>[];
+    for (final MarketEvent e in incoming) {
+      if (seen.add(e.id)) additions.add(e);
+    }
+    if (additions.isEmpty) return existing;
+
+    final List<MarketEvent> next = <MarketEvent>[...existing, ...additions]
+      ..sort(
+        (MarketEvent a, MarketEvent b) => a.timestamp.compareTo(b.timestamp),
+      );
     while (next.length > _maxEvents) {
       next.removeAt(0);
     }
     return next;
   }
 
+  /// Schedules the next poll exactly [_eventPollInterval] from now.
+  /// Re-armed after each fire (rather than `Timer.periodic`) so timer
+  /// drift can't cause pile-ups while the app is backgrounded.
+  /// No-ops when polling is disabled (`_eventPollInterval == null`).
+  void _scheduleEventPoll() {
+    final Duration? interval = _eventPollInterval;
+    if (interval == null) return;
+    _eventPollTimer?.cancel();
+    _eventPollTimer = Timer(interval, () {
+      // Guard the inherently racy "timer fired during close()" case:
+      // [Timer.cancel] doesn't yank a callback that's already crossed
+      // into the event-loop queue, so without this check we'd hit
+      // `StateError: Cannot add new events after calling close` when
+      // a user navigates away from the asset detail screen between
+      // when the timer fires and when our handler runs.
+      if (isClosed) return;
+      add(const _EventsPollTicked());
+    });
+  }
+
   /// Wraps [rebuildCandlesWorker] with the bloc's threshold policy.
   /// Small inputs run inline (isolate spin-up would dominate); large
   /// ones dispatch to a background isolate so the UI thread stays
   /// free to pump animations and gestures while the rebuild runs.
+  ///
+  /// When [gaps] is non-empty (timeframe change with active pause
+  /// history; history extension) the gap splice is folded into the
+  /// same isolate hop — previously the bloc rebuilt off-main and
+  /// then ran [CandleAggregator.mergeGaps] back on the main thread,
+  /// doubling the per-frame cost on long sessions.
   Future<List<Candle>> _rebuildOffMain({
     required List<Tick> ticks,
     required Timeframe timeframe,
+    List<PauseGap> gaps = const <PauseGap>[],
   }) {
     if (ticks.length < _rebuildIsolateThreshold) {
-      return Future<List<Candle>>.value(_aggregator.rebuild(ticks, timeframe));
+      final List<Candle> rebuilt = _aggregator.rebuild(ticks, timeframe);
+      final List<Candle> withGaps = gaps.isEmpty
+          ? rebuilt
+          : _aggregator.mergeGaps(rebuilt, gaps, timeframe);
+      return Future<List<Candle>>.value(withGaps);
     }
     return runOffMain<RebuildArgs, List<Candle>>(
       rebuildCandlesWorker,
-      (ticks: ticks, timeframe: timeframe),
+      (ticks: ticks, timeframe: timeframe, gaps: gaps),
       heuristicSize: ticks.length,
       threshold: _rebuildIsolateThreshold,
       debugLabel: 'candle-rebuild-${state.symbol}',
     );
   }
 
-  /// Sprinkles a handful of events across the historical window so the
-  /// chart isn't empty of markers on first load.
-  List<MarketEvent> _seedHistoricalEvents(List<Tick> history) {
-    if (history.length < 2) return const <MarketEvent>[];
-    final DateTime start = history.first.timestamp;
-    final DateTime end = history.last.timestamp;
-    final int spanMs = end.difference(start).inMilliseconds;
-    if (spanMs <= 0) return const <MarketEvent>[];
-
-    // ~one event per hour of recent history, capped at 24, so users see
-    // a handful of markers immediately without overwhelming the timeline.
-    final int desired =
-        (spanMs / Duration.millisecondsPerHour).clamp(6, 24).toInt();
-    final List<MarketEvent> events = <MarketEvent>[];
-    for (int i = 0; i < desired; i++) {
-      // Use nextDouble * spanMs instead of nextInt(spanMs) — for a
-      // 1-year window spanMs exceeds Random.nextInt's 2^32 cap.
-      final int offsetMs = (_random.nextDouble() * spanMs).toInt();
-      final DateTime ts = start.add(Duration(milliseconds: offsetMs));
-      events.add(randomMarketEvent(timestamp: ts, random: _random));
-    }
-    events.sort(
-      (MarketEvent a, MarketEvent b) => a.timestamp.compareTo(b.timestamp),
-    );
-    return events;
-  }
-
-  /// Schedules the next periodic spawn exactly [_eventTickInterval] from
-  /// now. Re-armed each fire (rather than a `Timer.periodic`) so timer
-  /// drift can't cause pile-ups while the app is backgrounded.
-  void _scheduleNextEventTick() {
-    _eventTimer?.cancel();
-    _eventTimer = Timer(
-      _eventTickInterval,
-      () => add(const _MarketEventTimerTicked()),
-    );
-  }
-
   @override
   Future<void> close() async {
+    // Cancel the timer FIRST (synchronously) so any pending tick
+    // gets pulled before we yield the event loop on the awaits
+    // below. The timer's callback also re-checks `isClosed` for
+    // the case where it fired but hadn't run its body yet.
+    _eventPollTimer?.cancel();
     await _subscription?.cancel();
     await _fillSubscription?.cancel();
-    _eventTimer?.cancel();
     // The tick + historical + fill repositories are owned by the
     // app's RepositoryProviders, not by this bloc. We're route-scoped
     // now — disposing them here would tear down the shared price
@@ -652,9 +735,10 @@ class ChartBloc extends Bloc<ChartEvent, ChartState> {
   }
 }
 
-/// Internal: the periodic event timer ticked.
-class _MarketEventTimerTicked extends ChartEvent {
-  const _MarketEventTimerTicked();
+/// Internal: the events poll timer ticked. Triggers a delta-fetch
+/// against the events API for any newly-created rows.
+class _EventsPollTicked extends ChartEvent {
+  const _EventsPollTicked();
 }
 
 /// Internal: a tick arrived from the live stream.
