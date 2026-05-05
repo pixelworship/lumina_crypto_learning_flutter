@@ -380,9 +380,9 @@ those need a different host. See the table below.
 | macOS desktop                 | `http://localhost:4001`                         |
 | Linux / Windows desktop       | `http://localhost:4001`                         |
 | iOS Simulator                 | `http://localhost:4001`                         |
-| iOS physical device           | `http://<your-mac-LAN-ip>:4001`                 |
+| iOS physical device           | `http://<your-mac-LAN-ip>:4001` *or* ngrok URL  |
 | Android Emulator (AVD)        | `http://10.0.2.2:4001`                          |
-| Android physical device       | `http://<your-machine-LAN-ip>:4001`             |
+| Android physical device       | `http://<your-machine-LAN-ip>:4001` *or* ngrok URL |
 | Flutter Web (Chrome / Edge)   | `http://localhost:4001`                         |
 
 To find your machine's LAN IP:
@@ -396,7 +396,96 @@ hostname -I | awk '{print $1}'   # Linux
 ipconfig | findstr IPv4
 ```
 
-### 4.4 Run the app
+If a LAN IP isn't usable (phone on cellular, phone on a different
+Wi-Fi network than your laptop, corporate Wi-Fi that blocks
+peer-to-peer, App Transport Security complaining about cleartext HTTP
+on iOS), skip ahead to [4.4 Using ngrok for any-network access](#44-using-ngrok-for-any-network-access).
+
+### 4.4 Using ngrok for any-network access
+
+[ngrok](https://ngrok.com) opens a public HTTPS tunnel to your
+local Express server, so a physical device can reach the API
+**regardless of network topology** — cellular, guest Wi-Fi,
+or just-a-different-coffee-shop. As a bonus the tunnel terminates as
+HTTPS, which sidesteps iOS App Transport Security entirely.
+
+#### 4.4.1 Install and authenticate
+
+```bash
+# macOS (Homebrew)
+brew install ngrok
+
+# or download a binary for your OS from https://ngrok.com/download
+```
+
+Sign up for a free account, copy your authtoken from
+<https://dashboard.ngrok.com/get-started/your-authtoken>, and register
+it once per machine:
+
+```bash
+ngrok config add-authtoken YOUR_NGROK_AUTHTOKEN
+```
+
+#### 4.4.2 Open the tunnel
+
+With the Events API already running on port 4001 (Step 2.3), in a
+**new terminal**:
+
+```bash
+ngrok http 4001
+```
+
+ngrok prints a forwarding URL that looks like:
+
+```
+Forwarding   https://abc1-23-45-67-89.ngrok-free.app -> http://localhost:4001
+```
+
+Copy that HTTPS URL. Verify the tunnel:
+
+```bash
+curl https://abc1-23-45-67-89.ngrok-free.app/health
+# → {"status":"ok","service":"lumina-events-api"}
+```
+
+#### 4.4.3 Point the Flutter app at the tunnel
+
+Pass the ngrok URL via `--dart-define` instead of a LAN IP:
+
+```bash
+flutter run -d <device-id> \
+  --dart-define=EVENTS_API_BASE_URL=https://abc1-23-45-67-89.ngrok-free.app
+```
+
+Done — the chart picks up events from your local Express server even
+if the phone is on a totally different network from your laptop.
+
+#### 4.4.4 Caveats and tips
+
+- **The free-tier URL changes every time `ngrok http` restarts.** Each
+  fresh tunnel needs a fresh `--dart-define` and a full Flutter
+  rebuild. If you're iterating, leave the tunnel running and only
+  restart Flutter; the URL stays stable for the lifetime of the
+  ngrok process. For a permanent URL, use ngrok's static-domain
+  feature (free tier offers one static domain per account).
+- **Browsers see an interstitial warning page on the first request**
+  to a free-tier ngrok URL. The Flutter `http` client doesn't trigger
+  this because it sends a non-browser User-Agent (`Dart/3.x`), so the
+  Flutter app is unaffected. If you want to point the Web dashboard
+  at a teammate's ngrok URL, append the header
+  `ngrok-skip-browser-warning: true` (any value works) to the
+  dashboard's fetch calls, or upgrade the tunnel to a paid plan that
+  removes the interstitial.
+- **Treat the URL like a credential.** While the tunnel is open,
+  anyone with the URL can hit your local API and, by extension, your
+  Supabase service-role key's reach. Tear the tunnel down when you're
+  done (`Ctrl-C` in the ngrok terminal) and don't paste the URL into
+  public chat.
+- **The tunnel works for the dashboard too.** If a teammate needs to
+  poke the dashboard during a review, run a second `ngrok http 5173`
+  tunnel and share that URL. Same caveats apply.
+
+### 4.5 Run the app
 
 Pick a device and run:
 
@@ -627,15 +716,25 @@ This is almost always one of:
 Use `http://10.0.2.2:4001` rather than `http://localhost:4001`. From
 the emulator's perspective `localhost` is the emulator itself, not
 your host machine. `10.0.2.2` is the special address the AVD uses to
-reach the host loopback.
+reach the host loopback. An ngrok HTTPS URL also works (see
+[4.4](#44-using-ngrok-for-any-network-access)) and avoids the need to
+whitelist cleartext HTTP in `network_security_config.xml`.
 
 ### iOS physical device can't reach the API
 
-`localhost` resolves to the phone, not your Mac. Find your Mac's LAN
-IP (`ipconfig getifaddr en0`) and use `http://<that-ip>:4001`. The
-phone and Mac must be on the same Wi-Fi network. If you're on a
-"public" network profile, macOS may block incoming connections — flip
-the network to "private" or temporarily disable the firewall.
+`localhost` resolves to the phone, not your Mac. You have two options:
+
+1. **Same Wi-Fi network:** find your Mac's LAN IP
+   (`ipconfig getifaddr en0`) and use `http://<that-ip>:4001`. The
+   phone and Mac must be on the same Wi-Fi network. If macOS blocks
+   incoming connections (common on "public" network profiles or with
+   the firewall on), either flip the network to "private" or
+   temporarily disable the firewall.
+2. **Any network (recommended when LAN doesn't work):** open an ngrok
+   tunnel and use the resulting `https://...ngrok-free.app` URL —
+   see [4.4 Using ngrok for any-network access](#44-using-ngrok-for-any-network-access).
+   Bonus: HTTPS sidesteps iOS App Transport Security entirely, so you
+   don't have to whitelist cleartext HTTP in `Info.plist`.
 
 ### "I made a code change but the Flutter app shows the old behavior"
 
