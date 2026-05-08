@@ -157,15 +157,22 @@ class LuminaApp extends StatelessWidget {
             cache: ctx.read<HistoricalTickCache>(),
           ),
         ),
-        // Chart events come from the Express API in `_x/api`, which
-        // proxies the Supabase `chart_events` table. Override the base
-        // URL with `--dart-define=EVENTS_API_BASE_URL=http://10.0.2.2:4001`
-        // when running on an Android emulator.
+        // Chart events come from the deployed CDK stack in `_x/cdk`
+        // (API Gateway + Lambdas + Supabase). The `_x/api` Express
+        // server is a local-dev fallback that hits the same Supabase
+        // table — point at it during dev with:
+        //
+        //   --dart-define=EVENTS_API_BASE_URL=http://localhost:4001
+        //   --dart-define=EVENTS_API_BASE_URL=http://10.0.2.2:4001  (Android emulator)
+        //
+        // The trailing slash on the deployed URL is fine — the API
+        // client trims it before composing request URIs.
         RepositoryProvider<ChartEventsApi>(
           create: (_) => HttpChartEventsApi(
             baseUrl: const String.fromEnvironment(
               'EVENTS_API_BASE_URL',
-              defaultValue: 'http://localhost:4001',
+              defaultValue:
+                  'https://lgrkbb3msg.execute-api.us-west-2.amazonaws.com/prod/',
             ),
           ),
         ),

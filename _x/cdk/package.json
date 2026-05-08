@@ -1,0 +1,27 @@
+{
+  "name": "lumina-events-cdk",
+  "version": "0.1.0",
+  "private": true,
+  "bin": {
+    "cdk": "bin/cdk.js"
+  },
+  "scripts": {
+    "bootstrap": "cdk bootstrap --require-approval never --profile pixelworship",
+    "build": "cdk synth",
+    "deploy": "cdk deploy --all --require-approval never --profile pixelworship",
+    "watch": "cdk watch --all",
+    "cdk": "cdk"
+  },
+  "devDependencies": {
+    "@types/node": "22.7.9",
+    "aws-cdk": "2.1119.0",
+    "ts-node": "^10.9.2",
+    "typescript": "~5.6.3"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "2.251.0",
+    "constructs": "^10.0.0",
+    "dotenv": "^16.3.1"
+  },
+  "license": "MIT"
+}
