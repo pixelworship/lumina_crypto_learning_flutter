@@ -63,13 +63,15 @@ class CandlePainter extends CustomPainter {
   final (double, double)? priceRangeOverride;
 
   /// Index of the candle the user is currently inspecting (long-press
-  /// crosshair). When non-null, every other candle is drawn at
-  /// [dimAlpha] so the focused one visually pops.
+  /// crosshair). When non-null, candles strictly to the right of this
+  /// index are drawn at [dimAlpha] so the focused one (and the price
+  /// history leading up to it) visually pops. Candles at or to the
+  /// left of this index always paint at full opacity.
   final int? highlightedIndex;
 
-  /// Alpha multiplier applied to candles that aren't [highlightedIndex]
-  /// while a highlight is active. 0 hides them entirely; 1 disables the
-  /// dim effect.
+  /// Alpha multiplier applied to candles strictly to the right of
+  /// [highlightedIndex] while a highlight is active. 0 hides them
+  /// entirely; 1 disables the dim effect.
   final double dimAlpha;
 
   @override
@@ -188,12 +190,13 @@ class CandlePainter extends CustomPainter {
           (i - firstVisibleIndex) * candleWidth +
           candleWidth / 2;
 
-      // When a highlight is active, every other candle draws at
-      // dimAlpha so the focused one pops. The highlighted candle (and
-      // every candle when no highlight is active) draws at full
-      // opacity.
+      // When a highlight is active, only candles strictly to the
+      // right of the focused index dim down — the focused candle and
+      // every candle preceding it (the price history that led up to
+      // this moment) stay fully opaque. With no highlight active,
+      // every candle paints at full opacity.
       final bool isFocused =
-          highlightedIndex == null || highlightedIndex == i;
+          highlightedIndex == null || i <= highlightedIndex!;
       final double effectiveAlpha = isFocused ? 1.0 : dimAlpha;
 
       final Color baseColor = c.isBullish ? bullishColor : bearishColor;

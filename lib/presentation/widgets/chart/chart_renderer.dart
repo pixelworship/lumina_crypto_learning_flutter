@@ -388,7 +388,20 @@ class _CustomChartState extends State<_CustomChart>
                             child: IgnorePointer(
                               child: CustomPaint(
                                 painter: CrosshairPainter(
-                                  position: _crosshair,
+                                  // Snap the vertical line to the
+                                  // center of whichever candle slot
+                                  // the finger is over, so the line
+                                  // discretely jumps from candle to
+                                  // candle as the user drags instead
+                                  // of sliding pixel-by-pixel. The
+                                  // raw `_crosshair` is still used
+                                  // for haptics, dimming, and tooltip
+                                  // placement.
+                                  position: _snappedCrosshair(
+                                    _crosshair!,
+                                    plotArea,
+                                    firstVisibleIndex,
+                                  ),
                                   color: t.colors.chartCrosshair,
                                 ),
                               ),
@@ -552,6 +565,32 @@ class _CustomChartState extends State<_CustomChart>
     if (idx < 0 || idx >= widget.candles.length) return null;
     if (widget.candles[idx].isGap) return null;
     return idx;
+  }
+
+  /// Returns [raw] with its x-coordinate snapped to the horizontal
+  /// center of whichever candle slot the pointer is currently over.
+  /// The slot center math here mirrors the one in [CandlePainter]
+  /// (`plotArea.left + (i - firstVisibleIndex + 0.5) * candleWidth`)
+  /// so the crosshair lines up exactly with the candle body it's
+  /// inspecting.
+  ///
+  /// Snapping happens for any slot the finger is over — real candle
+  /// or gap — so the line steps discretely across the timeline. When
+  /// the pointer is outside the plot area horizontally, the raw x is
+  /// preserved so the line still draws under the finger rather than
+  /// silently jumping.
+  Offset _snappedCrosshair(
+    Offset raw,
+    Rect plotArea,
+    double firstVisibleIndex,
+  ) {
+    if (_candleWidth <= 0) return raw;
+    final double relative = raw.dx - plotArea.left;
+    if (relative < 0 || relative > plotArea.width) return raw;
+    final int slot = (firstVisibleIndex + relative / _candleWidth).floor();
+    final double snappedX =
+        plotArea.left + (slot - firstVisibleIndex + 0.5) * _candleWidth;
+    return Offset(snappedX, raw.dy);
   }
 
   /// Fires a light selection-click haptic whenever the crosshair

@@ -2,8 +2,10 @@ import 'dart:math' as math;
 
 import 'package:flutter/rendering.dart';
 
-/// Draws a full-canvas crosshair (dashed horizontal + vertical lines) at
-/// [position]. No-op when [position] is null.
+/// Draws a full-height vertical dashed line at [position]. No-op when
+/// [position] is null. Used as the long-press inspection guide; we
+/// intentionally omit the horizontal counterpart so the candle bodies
+/// stay the dominant visual.
 class CrosshairPainter extends CustomPainter {
   CrosshairPainter({
     required this.position,
@@ -30,7 +32,6 @@ class CrosshairPainter extends CustomPainter {
       ..isAntiAlias = false;
 
     _drawDashed(canvas, Offset(p.dx, 0), Offset(p.dx, size.height), paint);
-    _drawDashed(canvas, Offset(0, p.dy), Offset(size.width, p.dy), paint);
   }
 
   void _drawDashed(Canvas canvas, Offset a, Offset b, Paint paint) {

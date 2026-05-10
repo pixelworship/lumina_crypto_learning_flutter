@@ -117,17 +117,40 @@ class EventMarkerOverlay extends StatelessWidget {
     }
 
     final double top = plotArea.bottom - _bottomMargin - _badgeSize;
-    return Stack(
-      children: <Widget>[
-        for (final _EventCluster cluster in clusters)
-          Positioned(
-            left: cluster.anchorCenterX - _badgeSize / 2,
-            top: top,
-            child: _ClusterBadge(cluster: cluster),
-          ),
-      ],
+    // Clip to the plot area so badges that sit near the right edge are
+    // visually cut off at the price-label gutter — matching how the
+    // candle painter clips its candles via `canvas.clipRect(plotArea)`.
+    // Without this, a badge whose centerX falls within ~1 badge of
+    // `plotArea.right` would render on top of the price labels.
+    return ClipRect(
+      clipper: _PlotAreaClipper(plotArea),
+      child: Stack(
+        children: <Widget>[
+          for (final _EventCluster cluster in clusters)
+            Positioned(
+              left: cluster.anchorCenterX - _badgeSize / 2,
+              top: top,
+              child: _ClusterBadge(cluster: cluster),
+            ),
+        ],
+      ),
     );
   }
+}
+
+/// Clips the overlay's painted output (and hit tests) to the chart's
+/// plot area, so markers can't spill into the right-side price gutter.
+class _PlotAreaClipper extends CustomClipper<Rect> {
+  const _PlotAreaClipper(this.plotArea);
+
+  final Rect plotArea;
+
+  @override
+  Rect getClip(Size size) => plotArea;
+
+  @override
+  bool shouldReclip(_PlotAreaClipper oldClipper) =>
+      oldClipper.plotArea != plotArea;
 }
 
 class _PositionedEvent {

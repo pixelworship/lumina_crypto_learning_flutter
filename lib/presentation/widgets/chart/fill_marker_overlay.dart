@@ -150,17 +150,39 @@ class FillMarkerOverlay extends StatelessWidget {
       }
     }
 
-    return Stack(
-      children: <Widget>[
-        for (final _FillCluster cluster in clusters)
-          Positioned(
-            left: cluster.anchorCenterX - _markerSize / 2,
-            top: cluster.anchorCenterY - _markerSize / 2,
-            child: _ClusterMarker(cluster: cluster),
-          ),
-      ],
+    // Clip to the plot area so markers near the right edge get cut off
+    // at the price-label gutter — same behavior as the candle painter
+    // (`canvas.clipRect(plotArea)`). Otherwise a fill anchored just
+    // before the live edge can render on top of the price labels.
+    return ClipRect(
+      clipper: _PlotAreaClipper(plotArea),
+      child: Stack(
+        children: <Widget>[
+          for (final _FillCluster cluster in clusters)
+            Positioned(
+              left: cluster.anchorCenterX - _markerSize / 2,
+              top: cluster.anchorCenterY - _markerSize / 2,
+              child: _ClusterMarker(cluster: cluster),
+            ),
+        ],
+      ),
     );
   }
+}
+
+/// Clips the overlay's painted output (and hit tests) to the chart's
+/// plot area, so markers can't spill into the right-side price gutter.
+class _PlotAreaClipper extends CustomClipper<Rect> {
+  const _PlotAreaClipper(this.plotArea);
+
+  final Rect plotArea;
+
+  @override
+  Rect getClip(Size size) => plotArea;
+
+  @override
+  bool shouldReclip(_PlotAreaClipper oldClipper) =>
+      oldClipper.plotArea != plotArea;
 }
 
 class _PositionedFill {
