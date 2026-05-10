@@ -4,6 +4,7 @@ import '../../../design_system/lumina_ui.dart';
 import 'backfill_button.dart';
 import 'debug_pause_control.dart';
 import 'debug_price_offset_controls.dart';
+import 'debug_sparkline_window_controls.dart';
 import 'debug_speed_controls.dart';
 import 'extend_history_button.dart';
 import 'volume_overlay_toggle_button.dart';
@@ -66,6 +67,7 @@ class _DebugPanelState extends State<DebugPanel>
       ExtendHistoryButton(),
       BackfillButton(),
       DebugPauseControl(),
+      DebugSparklineWindowControls(),
       DebugPriceOffsetControls(),
       DebugSpeedControls(),
     ];

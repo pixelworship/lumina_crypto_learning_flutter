@@ -43,8 +43,8 @@ class LuminaApp extends StatelessWidget {
     ApiService? apiOverride,
     FillRepository? fillRepositoryOverride,
     this.startChartStreaming = true,
-  })  : _apiOverride = apiOverride,
-        _fillRepositoryOverride = fillRepositoryOverride;
+  }) : _apiOverride = apiOverride,
+       _fillRepositoryOverride = fillRepositoryOverride;
 
   final ApiService? _apiOverride;
 
@@ -94,8 +94,9 @@ class LuminaApp extends StatelessWidget {
     // pending-timer set.
     final HistoricalPriceApi historicalApi = MockHistoricalPriceApi(
       feed: priceFeed,
-      latency:
-          startChartStreaming ? const Duration(milliseconds: 250) : Duration.zero,
+      latency: startChartStreaming
+          ? const Duration(milliseconds: 250)
+          : Duration.zero,
     );
     final HistoricalTickCache historicalCache = HistoricalTickCache();
 
@@ -127,12 +128,8 @@ class LuminaApp extends StatelessWidget {
           create: (_) => priceFeed,
           dispose: (LivePriceFeed feed) => feed.dispose(),
         ),
-        RepositoryProvider<HistoricalPriceApi>(
-          create: (_) => historicalApi,
-        ),
-        RepositoryProvider<HistoricalTickCache>(
-          create: (_) => historicalCache,
-        ),
+        RepositoryProvider<HistoricalPriceApi>(create: (_) => historicalApi),
+        RepositoryProvider<HistoricalTickCache>(create: (_) => historicalCache),
         RepositoryProvider<SparklineFeed>(
           create: (_) => sparklineFeed,
           dispose: (SparklineFeed feed) => feed.dispose(),
@@ -157,6 +154,7 @@ class LuminaApp extends StatelessWidget {
             cache: ctx.read<HistoricalTickCache>(),
           ),
         ),
+
         // Chart events come from the deployed CDK stack in `_x/cdk`
         // (API Gateway + Lambdas + Supabase). The `_x/api` Express
         // server is a local-dev fallback that hits the same Supabase
@@ -177,9 +175,8 @@ class LuminaApp extends StatelessWidget {
           ),
         ),
         RepositoryProvider<ChartEventsRepository>(
-          create: (BuildContext ctx) => ChartEventsRepository(
-            api: ctx.read<ChartEventsApi>(),
-          ),
+          create: (BuildContext ctx) =>
+              ChartEventsRepository(api: ctx.read<ChartEventsApi>()),
         ),
         RepositoryProvider<FillRepository>(
           create: (_) => fillRepository,

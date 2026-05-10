@@ -48,7 +48,7 @@ class SparklineFeed {
         _historicalApi = historicalApi,
         _clock = clock,
         _bufferSize = bufferSize,
-        _historyWindow = historyWindow {
+        _historyWindow = ValueNotifier<Duration>(historyWindow) {
     _subscription = _feed.watchAll().listen(_onPricesUpdated);
   }
 
@@ -56,9 +56,35 @@ class SparklineFeed {
   final HistoricalPriceApi _historicalApi;
   final Clock _clock;
   final int _bufferSize;
-  final Duration _historyWindow;
+  final ValueNotifier<Duration> _historyWindow;
   StreamSubscription<LivePriceUpdate>? _subscription;
   bool _disposed = false;
+
+  /// Width of the trailing window each sparkline buffer represents.
+  /// Exposed as a [ValueListenable] so debug UIs can both read the
+  /// current value and rebuild when it changes (e.g. a stepper that
+  /// shows "24h" / "7d" alongside +/- buttons).
+  ValueListenable<Duration> get historyWindowListenable => _historyWindow;
+
+  /// Current trailing window. Update via [setHistoryWindow].
+  Duration get historyWindow => _historyWindow.value;
+
+  /// Replace the trailing window. Re-seeds every existing buffer
+  /// from the warehouse against the new range — buffers flip back
+  /// into loading state (shimmer) until their re-fetch resolves so
+  /// the UI never shows the previous window's points stretched
+  /// across the new one.
+  ///
+  /// No-op if [value] equals the current window.
+  void setHistoryWindow(Duration value) {
+    if (_disposed) return;
+    if (_historyWindow.value == value) return;
+    _historyWindow.value = value;
+    for (final MapEntry<String, _SparklineBuffer> entry in _buffers.entries) {
+      entry.value.reset();
+      unawaited(_seedFromWarehouse(entry.key, entry.value));
+    }
+  }
 
   /// Lookup table from upper-cased symbol → buffer. We don't evict;
   /// each buffer is `bufferSize` doubles wide (32 by default ≈ 256
@@ -101,7 +127,8 @@ class SparklineFeed {
   ) async {
     try {
       final DateTime now = _clock.now();
-      final DateTime start = now.subtract(_historyWindow);
+      final Duration window = _historyWindow.value;
+      final DateTime start = now.subtract(window);
 
       // Specialized "sparkline samples" call: synth + downsample BOTH
       // run on a background isolate, so the only payload crossing
@@ -182,6 +209,7 @@ class SparklineFeed {
       buffer.dispose();
     }
     _buffers.clear();
+    _historyWindow.dispose();
   }
 }
 
@@ -256,6 +284,19 @@ class _SparklineBuffer extends ChangeNotifier
     _ring.removeLast();
     _ring.addLast(price);
     _dirty = true;
+  }
+
+  /// Drops every sample and flips the buffer back into loading
+  /// state. Used when the parent [SparklineFeed] needs to re-seed
+  /// against a new window — the row shimmers until the warehouse
+  /// re-fetch resolves rather than briefly showing stale points
+  /// stretched across the new range.
+  void reset() {
+    _ring.clear();
+    _isLoaded = false;
+    _snapshot = SparklineSnapshot.loading;
+    _dirty = false;
+    notifyListeners();
   }
 
   /// Flips the buffer out of loading state and publishes whatever
