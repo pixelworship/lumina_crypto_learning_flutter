@@ -353,26 +353,34 @@ class _FillMenuItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final LuminaTokens t = context.tokens;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        _MarkerGlyph(fill: fill, size: 20, fontSize: 10),
-        SizedBox(width: t.spacing.sm + 2),
-        ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 240),
-          child: Text(
-            _shortFillLabel(fill),
-            // Mono so the price column lines up across rows when a
-            // cluster expands ("@ $63,940" / "@ $63,941" / "@ $63,938").
-            style: t.typography.numericSm.copyWith(
-              fontSize: 14,
-              color: t.colors.contentPrimary,
-              fontWeight: FontWeight.w600,
+    // The popup menu hands us a bounded but variable width depending on
+    // screen size. Wrapping the label in `Flexible` (rather than a fixed
+    // `ConstrainedBox(maxWidth: 240)`) lets the text ellipsize against the
+    // *actual* available width, so a narrow phone layout can't push the row
+    // a few pixels past the menu edge.
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 260),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          _MarkerGlyph(fill: fill, size: 20, fontSize: 10),
+          SizedBox(width: t.spacing.sm + 2),
+          Flexible(
+            child: Text(
+              _shortFillLabel(fill),
+              // Mono so the price column lines up across rows when a
+              // cluster expands ("@ $63,940" / "@ $63,941" / "@ $63,938").
+              style: t.typography.numericSm.copyWith(
+                fontSize: 14,
+                color: t.colors.contentPrimary,
+                fontWeight: FontWeight.w600,
+              ),
+              overflow: TextOverflow.ellipsis,
+              softWrap: false,
             ),
-            overflow: TextOverflow.ellipsis,
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
