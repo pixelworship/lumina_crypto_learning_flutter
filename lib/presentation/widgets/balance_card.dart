@@ -58,7 +58,13 @@ class BalanceCard extends StatelessWidget {
             ],
           ),
           SizedBox(height: t.spacing.sm),
-          PriceSparkline(points: balance.sparkline),
+          PriceSparkline(
+            points: balance.sparkline,
+            // Drive line + dot-grid color from the authoritative 24h
+            // change so the sparkline always agrees with the change
+            // pill rendered just above (`balance.change24hPercent`).
+            isPositive: balance.isPositive,
+          ),
         ],
       ),
     );

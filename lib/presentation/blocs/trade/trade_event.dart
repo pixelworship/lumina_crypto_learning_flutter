@@ -34,11 +34,10 @@ class TradeRefreshed extends TradeEvent {
 
 /// User pressed the "Purchase {symbol}" button.
 ///
-/// Buy-only by design — quote currency is always paid out, base
-/// currency is always received. The schema keeps `fromSymbol` /
-/// `toSymbol` (rather than `baseSymbol` only) so a future Sell
-/// button can dispatch the same event with the symbols flipped
-/// without touching the bloc / repository signatures.
+/// Quote currency is paid out, base currency is received. The schema
+/// keeps `fromSymbol` / `toSymbol` (rather than `baseSymbol` only)
+/// so [TradeSaleSubmitted] can reuse the same direction-aware
+/// repository call with the symbols flipped.
 class TradePurchaseSubmitted extends TradeEvent {
   const TradePurchaseSubmitted({
     required this.fromSymbol,
@@ -53,6 +52,35 @@ class TradePurchaseSubmitted extends TradeEvent {
   final String toSymbol;
 
   /// Quantity of [toSymbol] to buy.
+  final double amount;
+
+  @override
+  List<Object?> get props => <Object?>[fromSymbol, toSymbol, amount];
+}
+
+/// User pressed the "Sell {symbol}" button.
+///
+/// Mirror of [TradePurchaseSubmitted] with the trade direction
+/// reversed — base currency is paid out, quote currency is received.
+/// Lives as a separate event (instead of a `side` field on the
+/// purchase event) so the bloc can route to a dedicated handler and
+/// record `FillSide.sell` for the chart's marker overlay; the
+/// underlying repository call is the same direction-agnostic
+/// `purchase(...)` so we don't have to extend the mock API surface.
+class TradeSaleSubmitted extends TradeEvent {
+  const TradeSaleSubmitted({
+    required this.fromSymbol,
+    required this.toSymbol,
+    required this.amount,
+  });
+
+  /// Currency the user is giving up (e.g. `BTC`).
+  final String fromSymbol;
+
+  /// Currency the user is receiving (e.g. `USDT`).
+  final String toSymbol;
+
+  /// Quantity of [fromSymbol] to sell.
   final double amount;
 
   @override

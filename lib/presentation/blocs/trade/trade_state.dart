@@ -13,6 +13,8 @@ class TradeState extends Equatable {
     this.quoteSymbol = 'USDT',
     this.isSubmittingPurchase = false,
     this.lastPurchaseSucceeded,
+    this.isSubmittingSale = false,
+    this.lastSaleSucceeded,
     this.errorMessage,
   });
 
@@ -31,6 +33,18 @@ class TradeState extends Equatable {
   /// `false` on reject or thrown exception.
   final bool? lastPurchaseSucceeded;
 
+  /// True while a `TradeSaleSubmitted` is in flight. Drives the sell
+  /// button's spinner + disables re-submit. Mirror of
+  /// [isSubmittingPurchase].
+  final bool isSubmittingSale;
+
+  /// One-shot result of the most recent sale. Same null / true / false
+  /// semantics as [lastPurchaseSucceeded]; kept on a separate field so
+  /// the buy and sell snackbar listeners can fire independently
+  /// (otherwise a buy that lands while a sale's result is still
+  /// pending would clobber it).
+  final bool? lastSaleSucceeded;
+
   final String? errorMessage;
 
   TradeState copyWith({
@@ -41,9 +55,12 @@ class TradeState extends Equatable {
     String? quoteSymbol,
     bool? isSubmittingPurchase,
     bool? lastPurchaseSucceeded,
+    bool? isSubmittingSale,
+    bool? lastSaleSucceeded,
     String? errorMessage,
     bool clearError = false,
     bool clearPurchaseResult = false,
+    bool clearSaleResult = false,
   }) {
     return TradeState(
       status: status ?? this.status,
@@ -56,6 +73,10 @@ class TradeState extends Equatable {
       lastPurchaseSucceeded: clearPurchaseResult
           ? null
           : (lastPurchaseSucceeded ?? this.lastPurchaseSucceeded),
+      isSubmittingSale: isSubmittingSale ?? this.isSubmittingSale,
+      lastSaleSucceeded: clearSaleResult
+          ? null
+          : (lastSaleSucceeded ?? this.lastSaleSucceeded),
       errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
     );
   }
@@ -69,6 +90,8 @@ class TradeState extends Equatable {
     quoteSymbol,
     isSubmittingPurchase,
     lastPurchaseSucceeded,
+    isSubmittingSale,
+    lastSaleSucceeded,
     errorMessage,
   ];
 }

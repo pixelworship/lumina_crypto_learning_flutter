@@ -98,22 +98,48 @@ class _AssetDetailView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final LuminaTokens t = context.tokens;
-    return BlocListener<TradeBloc, TradeState>(
-      listenWhen: (TradeState previous, TradeState current) =>
-          previous.lastPurchaseSucceeded != current.lastPurchaseSucceeded &&
-          current.lastPurchaseSucceeded != null,
-      listener: (BuildContext context, TradeState state) {
-        final bool ok = state.lastPurchaseSucceeded ?? false;
-        final TradePairSnapshot? snapshot = state.snapshot;
-        final String message = ok
-            ? (snapshot != null
-                ? 'Purchased ${snapshot.base.symbol}'
-                : 'Purchase submitted!')
-            : 'Purchase failed.';
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(SnackBar(content: Text(message)));
-      },
+    return MultiBlocListener(
+      listeners: <BlocListener<dynamic, dynamic>>[
+        BlocListener<TradeBloc, TradeState>(
+          listenWhen: (TradeState previous, TradeState current) =>
+              previous.lastPurchaseSucceeded !=
+                  current.lastPurchaseSucceeded &&
+              current.lastPurchaseSucceeded != null,
+          listener: (BuildContext context, TradeState state) {
+            final bool ok = state.lastPurchaseSucceeded ?? false;
+            final TradePairSnapshot? snapshot = state.snapshot;
+            final String message = ok
+                ? (snapshot != null
+                    ? 'Purchased ${snapshot.base.symbol}'
+                    : 'Purchase submitted!')
+                : 'Purchase failed.';
+            ScaffoldMessenger.of(context)
+              ..hideCurrentSnackBar()
+              ..showSnackBar(SnackBar(content: Text(message)));
+          },
+        ),
+        // Sale result lives on a separate state field so its listener
+        // can fire independently of the purchase one — otherwise a
+        // buy that lands while a sale's result is still pending would
+        // clobber the sale snackbar.
+        BlocListener<TradeBloc, TradeState>(
+          listenWhen: (TradeState previous, TradeState current) =>
+              previous.lastSaleSucceeded != current.lastSaleSucceeded &&
+              current.lastSaleSucceeded != null,
+          listener: (BuildContext context, TradeState state) {
+            final bool ok = state.lastSaleSucceeded ?? false;
+            final TradePairSnapshot? snapshot = state.snapshot;
+            final String message = ok
+                ? (snapshot != null
+                    ? 'Sold ${snapshot.base.symbol}'
+                    : 'Sale submitted!')
+                : 'Sale failed.';
+            ScaffoldMessenger.of(context)
+              ..hideCurrentSnackBar()
+              ..showSnackBar(SnackBar(content: Text(message)));
+          },
+        ),
+      ],
       child: Scaffold(
         backgroundColor: t.colors.surfaceCanvas,
         appBar: AppBar(
@@ -195,17 +221,37 @@ class _AssetDetailView extends StatelessWidget {
                     ),
                   ),
                   SizedBox(height: t.spacing.lg),
-                  _PurchaseCard(
+                  _OrderCard(
+                    side: _OrderSide.buy,
                     base: snapshot.base.symbol,
-                    quote: snapshot.quote.symbol,
                     isLoading: state.isSubmittingPurchase,
-                    onPurchase: (double amount) {
-                      // Buy-only flow: the user pays in `quote`
-                      // (e.g. USDT) and receives `base` (e.g. BTC).
+                    onSubmit: (double amount) {
+                      // Buy: pay in `quote` (e.g. USDT), receive
+                      // `base` (e.g. BTC).
                       context.read<TradeBloc>().add(
                             TradePurchaseSubmitted(
                               fromSymbol: snapshot.quote.symbol,
                               toSymbol: snapshot.base.symbol,
+                              amount: amount,
+                            ),
+                          );
+                    },
+                  ),
+                  SizedBox(height: t.spacing.md),
+                  _OrderCard(
+                    side: _OrderSide.sell,
+                    base: snapshot.base.symbol,
+                    isLoading: state.isSubmittingSale,
+                    onSubmit: (double amount) {
+                      // Sell: give up `base` (e.g. BTC), receive
+                      // `quote` (e.g. USDT) — exactly the buy flow
+                      // with the symbols flipped. The bloc routes
+                      // this to `_onSale` so the resulting fill is
+                      // recorded as `FillSide.sell`.
+                      context.read<TradeBloc>().add(
+                            TradeSaleSubmitted(
+                              fromSymbol: snapshot.base.symbol,
+                              toSymbol: snapshot.quote.symbol,
                               amount: amount,
                             ),
                           );
@@ -288,30 +334,49 @@ class _PairHeader extends StatelessWidget {
   }
 }
 
-/// Buy-only purchase card on the asset detail screen.
+/// Which side of the trade an [_OrderCard] represents.
+enum _OrderSide { buy, sell }
+
+/// Generic buy/sell card on the asset detail screen.
 ///
-/// One button → one direction: pay in [quote], receive [base]. The
-/// schema is intentionally generic enough that a future Sell button
-/// can be added next to this without forking the bloc / repository
-/// surface area.
-class _PurchaseCard extends StatefulWidget {
-  const _PurchaseCard({
+/// Two instances render stacked on the screen: one for each side.
+/// The widget owns its own `TextEditingController` (rather than
+/// lifting it to the parent) so a value typed into the buy field
+/// doesn't get echoed into the sell field — the two amounts are
+/// independent, the user usually wants to size them differently.
+///
+/// Side semantics:
+///   * [_OrderSide.buy]  — green/primary button labelled "PURCHASE
+///     {base}". Parent fires `TradePurchaseSubmitted` with the quote
+///     currency as `fromSymbol`.
+///   * [_OrderSide.sell] — red/danger button labelled "SELL {base}".
+///     Parent fires `TradeSaleSubmitted` with the base currency as
+///     `fromSymbol`.
+///
+/// The amount text input always reads "Amount in {base}" regardless
+/// of side — both flows quantify the trade in base units, just in
+/// opposite directions.
+class _OrderCard extends StatefulWidget {
+  const _OrderCard({
+    required this.side,
     required this.base,
-    required this.quote,
     required this.isLoading,
-    required this.onPurchase,
+    required this.onSubmit,
   });
 
+  final _OrderSide side;
+
+  /// Base symbol displayed in the input label, suffix, and button
+  /// label (e.g. `BTC`).
   final String base;
-  final String quote;
   final bool isLoading;
-  final ValueChanged<double> onPurchase;
+  final ValueChanged<double> onSubmit;
 
   @override
-  State<_PurchaseCard> createState() => _PurchaseCardState();
+  State<_OrderCard> createState() => _OrderCardState();
 }
 
-class _PurchaseCardState extends State<_PurchaseCard> {
+class _OrderCardState extends State<_OrderCard> {
   final TextEditingController _controller =
       TextEditingController(text: '0.10');
 
@@ -324,12 +389,17 @@ class _PurchaseCardState extends State<_PurchaseCard> {
   @override
   Widget build(BuildContext context) {
     final LuminaTokens t = context.tokens;
+    final bool isBuy = widget.side == _OrderSide.buy;
+    final String title = isBuy ? 'Buy' : 'Sell';
+    final String buttonLabel = isBuy
+        ? 'PURCHASE ${widget.base}'
+        : 'SELL ${widget.base}';
     return LuminaCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Text(
-            'Buy',
+            title,
             style: t.typography.titleSm.copyWith(
               color: t.colors.contentPrimary,
             ),
@@ -342,17 +412,31 @@ class _PurchaseCardState extends State<_PurchaseCard> {
             suffixText: widget.base,
           ),
           SizedBox(height: t.spacing.md),
-          LuminaButton.primary(
-            label: 'PURCHASE ${widget.base}',
-            expand: true,
-            isLoading: widget.isLoading,
-            onPressed: () {
-              final double amount = double.tryParse(_controller.text) ?? 0.0;
-              widget.onPurchase(amount);
-            },
-          ),
+          // Buy = primary (brand accent); Sell = danger (red).
+          // Distinct affordance prevents the muscle-memory mistake of
+          // tapping the wrong button when the user means the
+          // opposite trade.
+          if (isBuy)
+            LuminaButton.primary(
+              label: buttonLabel,
+              expand: true,
+              isLoading: widget.isLoading,
+              onPressed: () => _submit(),
+            )
+          else
+            LuminaButton.danger(
+              label: buttonLabel,
+              expand: true,
+              isLoading: widget.isLoading,
+              onPressed: () => _submit(),
+            ),
         ],
       ),
     );
+  }
+
+  void _submit() {
+    final double amount = double.tryParse(_controller.text) ?? 0.0;
+    widget.onSubmit(amount);
   }
 }

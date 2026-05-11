@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../design_system/lumina_ui.dart';
+import '../blocs/debug/sparkline_open_line_cubit.dart';
 import '../blocs/home/home_bloc.dart';
 import '../blocs/home/home_event.dart';
 import '../blocs/markets/markets_bloc.dart';
@@ -45,6 +46,12 @@ class _MainShellState extends State<MainShell> {
   Widget build(BuildContext context) {
     return BlocBuilder<NavigationCubit, AppTab>(
       builder: (BuildContext context, AppTab tab) {
+        // The sparkline-open-line FAB only meaningfully affects tabs
+        // that render sparklines (home + markets). Hiding it on
+        // portfolio + profile keeps a debug-only control out of the
+        // user's way on screens where it has no visible effect.
+        final bool showSparklineDebugFab =
+            tab == AppTab.home || tab == AppTab.markets;
         return Scaffold(
           appBar: const LuminaAppBar(),
           body: SafeArea(
@@ -58,10 +65,47 @@ class _MainShellState extends State<MainShell> {
               ],
             ),
           ),
+          floatingActionButton:
+              showSparklineDebugFab ? const _SparklineOpenLineFab() : null,
           bottomNavigationBar: _LuminaBottomNav(
             currentTab: tab,
             onSelected: (AppTab next) =>
                 context.read<NavigationCubit>().select(next),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Small floating debug toggle that flips the dashed "open" reference
+/// line on every visible sparkline. Intentionally low-visual-weight
+/// (a small FAB with a muted surface color) so it reads as a debug
+/// affordance rather than a primary action — matching the chart's
+/// `DebugPanel` idiom on the asset detail screen.
+class _SparklineOpenLineFab extends StatelessWidget {
+  const _SparklineOpenLineFab();
+
+  @override
+  Widget build(BuildContext context) {
+    final LuminaTokens t = context.tokens;
+    return BlocBuilder<SparklineOpenLineCubit, bool>(
+      builder: (BuildContext context, bool visible) {
+        return FloatingActionButton.small(
+          heroTag: 'sparkline-open-line-toggle',
+          tooltip: visible
+              ? 'Hide sparkline open line'
+              : 'Show sparkline open line',
+          backgroundColor:
+              visible ? t.colors.accentPrimary : t.colors.surfaceRaised,
+          foregroundColor:
+              visible ? t.colors.onAccentPrimary : t.colors.contentPrimary,
+          onPressed: () =>
+              context.read<SparklineOpenLineCubit>().toggle(),
+          child: Icon(
+            visible
+                ? Icons.horizontal_rule
+                : Icons.horizontal_rule_outlined,
           ),
         );
       },

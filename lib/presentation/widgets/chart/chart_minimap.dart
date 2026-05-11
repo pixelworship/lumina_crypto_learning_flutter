@@ -1,9 +1,13 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../design_system/lumina_ui.dart';
 import '../../blocs/chart/chart_bloc.dart';
 import '../../blocs/chart/chart_state.dart';
+import '../../blocs/debug/sparkline_open_line_cubit.dart';
+import '../../blocs/trade/trade_bloc.dart';
 
 /// Robinhood-style line+gradient minimap pinned to the bottom-left of
 /// the chart. Shows the most recent [_closeCap] non-gap candle closes
@@ -14,6 +18,11 @@ import '../../blocs/chart/chart_state.dart';
 /// [Positioned]: the toggle icon sits at the column's bottom slot and
 /// therefore never moves, while the chart panel above it tweens its
 /// height open/closed via [AnimatedSize].
+///
+/// The painter renders a fading dot lattice below the line (matching
+/// the `PriceSparkline` / `AssetSparkline` idiom across the rest of
+/// the app) and, when the app-level [SparklineOpenLineCubit] is on,
+/// a dashed reference line at the window's first close.
 class ChartMinimap extends StatefulWidget {
   const ChartMinimap({super.key});
 
@@ -62,6 +71,22 @@ class _ChartMinimapState extends State<ChartMinimap> {
 
   Widget _buildChartPanel() {
     final LuminaTokens t = context.tokens;
+    // The dashed open line is gated by the app-level debug cubit, the
+    // same one that controls the dashed line on the home + markets
+    // sparklines. Watching here means a toggle from the MainShell FAB
+    // (or anywhere else) repaints the minimap on the next frame too.
+    final bool showOpenLine =
+        context.watch<SparklineOpenLineCubit>().state;
+    // Authoritative 24h direction lives on `TradePairSnapshot`
+    // (`changePercent` anchored on `priceAt24hAgo`) — the same value
+    // the header's change pill displays. Use `context.select` so this
+    // widget only rebuilds when the boolean flips, not on every tick
+    // that nudges `changePercent` without crossing zero. Null until
+    // the trade snapshot resolves; the fallback below handles that
+    // warm-up window.
+    final bool? isPositive24h = context.select<TradeBloc, bool?>(
+      (TradeBloc bloc) => bloc.state.snapshot?.isPositive,
+    );
     return BlocSelector<ChartBloc, ChartState, List<double>>(
       selector: (ChartState state) {
         final List<double> closes = <double>[];
@@ -74,6 +99,19 @@ class _ChartMinimapState extends State<ChartMinimap> {
         return closes.reversed.toList(growable: false);
       },
       builder: (BuildContext context, List<double> closes) {
+        // Prefer the authoritative 24h signal from `TradeBloc`. The
+        // minimap's own `closes.last >= closes.first` would only
+        // describe the visible window (e.g. ~3 hours of data on the
+        // 1m timeframe given the 200-close cap), which can disagree
+        // with the actual 24h move — locally up while down for the
+        // day, or vice versa. Falls back to the window-local
+        // comparison only while the trade snapshot is still loading
+        // so the minimap renders something sensible during warm-up.
+        final bool isPositive = isPositive24h ??
+            (closes.length < 2 ? true : closes.last >= closes.first);
+        final Color lineColor = isPositive
+            ? t.colors.chartCandleBullish
+            : t.colors.chartCandleBearish;
         return Material(
           color: t.colors.surfaceCanvas.withValues(alpha: 0.65),
           borderRadius: t.radii.smAll,
@@ -93,7 +131,9 @@ class _ChartMinimapState extends State<ChartMinimap> {
                 child: CustomPaint(
                   painter: _ChartMinimapPainter(
                     closes: closes,
-                    lineColor: t.colors.chartCandleBullish,
+                    lineColor: lineColor,
+                    dashColor: t.colors.contentTertiary,
+                    showOpenLine: showOpenLine,
                   ),
                 ),
               ),
@@ -126,11 +166,49 @@ class _ChartMinimapState extends State<ChartMinimap> {
   }
 }
 
+/// Paints the minimap line plus a fading dot lattice in the area
+/// strictly below it, mirroring the treatment used by `PriceSparkline`
+/// and `AssetSparkline` across the rest of the app so every line
+/// chart in Lumina reads as part of the same visual family.
+///
+/// The legacy soft-gradient fill is gone — same reasoning as the
+/// other sparklines: a same-hue gradient under same-hue dots flattens
+/// to "just the gradient", and the dot field already gives the eye a
+/// strong sense of below-line volume without needing a tinted wash.
 class _ChartMinimapPainter extends CustomPainter {
-  _ChartMinimapPainter({required this.closes, required this.lineColor});
+  _ChartMinimapPainter({
+    required this.closes,
+    required this.lineColor,
+    required this.dashColor,
+    required this.showOpenLine,
+  });
 
   final List<double> closes;
   final Color lineColor;
+
+  /// Stroke color for the dashed open-price reference line. Kept
+  /// independent of [lineColor] so the dashed marker can use a
+  /// neutral gray (an axis-style tick) while the line + dot lattice
+  /// stay in the chart's primary hue.
+  final Color dashColor;
+
+  /// Whether the dashed open reference line is drawn at all. Driven
+  /// by [SparklineOpenLineCubit]; defaults off in shipping UI.
+  final bool showOpenLine;
+
+  /// Dot lattice geometry. 5 px / 0.7 px radius matches
+  /// `_AssetSparklinePainter` since the minimap's post-padding
+  /// drawable area (~140×34) is closer in scale to the markets-row
+  /// sparklines than the balance card.
+  static const double _dotSpacing = 5.0;
+  static const double _dotRadius = 0.7;
+  static const double _dotPeakAlpha = 0.65;
+
+  /// Geometry + alpha for the dashed open marker.
+  static const double _openDashLength = 3.0;
+  static const double _openGapLength = 3.0;
+  static const double _openLineAlpha = 0.6;
+  static const double _openLineStroke = 1.0;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -143,43 +221,52 @@ class _ChartMinimapPainter extends CustomPainter {
       if (p > maxP) maxP = p;
     }
 
-    double yFor(double p, {required bool flat}) {
+    final bool flat = maxP == minP;
+    double yFor(double p) {
       if (flat) return size.height / 2;
       final double ratio = (p - minP) / (maxP - minP);
       return size.height - ratio * size.height;
     }
 
-    final bool flat = maxP == minP;
     final double stepX =
         closes.length == 1 ? 0.0 : size.width / (closes.length - 1);
 
-    final Path linePath = Path();
-    for (int i = 0; i < closes.length; i++) {
-      final double x = i * stepX;
-      final double y = yFor(closes[i], flat: flat);
-      if (i == 0) {
-        linePath.moveTo(x, y);
-      } else {
-        linePath.lineTo(x, y);
+    // Pre-compute pixel y for each close so the inner dot loop just
+    // lerps between neighbors instead of redoing the price-to-pixel
+    // mapping per dot column.
+    final List<double> pxY = <double>[
+      for (final double p in closes) yFor(p),
+    ];
+
+    // 1. Dashed open marker first (when enabled) so the dot lattice
+    //    paints on top of any overlap — same z-order as the other
+    //    sparklines.
+    if (showOpenLine) {
+      final double openY = pxY.first;
+      if (openY >= 0 && openY <= size.height) {
+        final Paint openPaint = Paint()
+          ..color = dashColor.withValues(alpha: _openLineAlpha)
+          ..strokeWidth = _openLineStroke
+          ..isAntiAlias = false;
+        _drawDashedHorizontal(canvas, openY, size.width, openPaint);
       }
     }
 
-    final Path fillPath = Path.from(linePath)
-      ..lineTo((closes.length - 1) * stepX, size.height)
-      ..lineTo(0, size.height)
-      ..close();
+    // 2. Dot lattice strictly below the line. The line itself
+    //    paints last so it sits visually on top of the dots.
+    _paintDotGrid(canvas, size, pxY, stepX);
 
-    final Paint fillPaint = Paint()
-      ..shader = LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: <Color>[
-          lineColor.withValues(alpha: 0.45),
-          lineColor.withValues(alpha: 0.0),
-        ],
-      ).createShader(Offset.zero & size);
-    canvas.drawPath(fillPath, fillPaint);
-
+    // 3. The line — built as a path so it can render with rounded
+    //    joins/caps for a polished look at minimap scale.
+    final Path linePath = Path();
+    for (int i = 0; i < closes.length; i++) {
+      final double x = i * stepX;
+      if (i == 0) {
+        linePath.moveTo(x, pxY[i]);
+      } else {
+        linePath.lineTo(x, pxY[i]);
+      }
+    }
     final Paint linePaint = Paint()
       ..color = lineColor
       ..strokeWidth = 1.5
@@ -190,7 +277,62 @@ class _ChartMinimapPainter extends CustomPainter {
     canvas.drawPath(linePath, linePaint);
   }
 
+  /// Lays down the line-colored dot lattice in the region strictly
+  /// below the polyline. Same mask-and-fade algorithm as
+  /// `_AssetSparklinePainter._paintGrid`: linear interpolate the
+  /// line's pixel-space y for each column, skip dots above it, and
+  /// fade per-row alpha from `_dotPeakAlpha` at the top to 0 at the
+  /// bottom.
+  void _paintDotGrid(
+    Canvas canvas,
+    Size size,
+    List<double> pxY,
+    double stepX,
+  ) {
+    double lineYAt(double px) {
+      if (stepX <= 0) return pxY.first;
+      final double t = (px / stepX).clamp(0.0, (closes.length - 1).toDouble());
+      final int i = t.floor();
+      final int j = (i + 1).clamp(0, closes.length - 1);
+      final double f = t - i;
+      return pxY[i] * (1 - f) + pxY[j] * f;
+    }
+
+    final Paint dotPaint = Paint()..style = PaintingStyle.fill;
+    // Half-cell offset so the lattice visually centers within the
+    // canvas instead of clinging to the top-left corner.
+    final double startOffset = _dotSpacing / 2;
+    for (double x = startOffset; x <= size.width; x += _dotSpacing) {
+      final double curveY = lineYAt(x);
+      for (double y = startOffset; y <= size.height; y += _dotSpacing) {
+        if (y < curveY) continue;
+        final double t = (y / size.height).clamp(0.0, 1.0);
+        final double alpha = (1.0 - t) * _dotPeakAlpha;
+        if (alpha <= 0.01) continue;
+        dotPaint.color = lineColor.withValues(alpha: alpha);
+        canvas.drawCircle(Offset(x, y), _dotRadius, dotPaint);
+      }
+    }
+  }
+
+  void _drawDashedHorizontal(
+    Canvas canvas,
+    double y,
+    double width,
+    Paint paint,
+  ) {
+    double x = 0.0;
+    while (x < width) {
+      final double endX = math.min(x + _openDashLength, width);
+      canvas.drawLine(Offset(x, y), Offset(endX, y), paint);
+      x += _openDashLength + _openGapLength;
+    }
+  }
+
   @override
   bool shouldRepaint(covariant _ChartMinimapPainter old) =>
-      !identical(old.closes, closes) || old.lineColor != lineColor;
+      !identical(old.closes, closes) ||
+      old.lineColor != lineColor ||
+      old.dashColor != dashColor ||
+      old.showOpenLine != showOpenLine;
 }

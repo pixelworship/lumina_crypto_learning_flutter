@@ -17,6 +17,7 @@ import 'data/services/live_price_feed.dart';
 import 'data/services/mock_api_service.dart';
 import 'data/services/sparkline_feed.dart';
 import 'design_system/lumina_ui.dart';
+import 'presentation/blocs/debug/sparkline_open_line_cubit.dart';
 import 'presentation/blocs/home/home_bloc.dart';
 import 'presentation/blocs/markets/markets_bloc.dart';
 import 'presentation/blocs/navigation/navigation_cubit.dart';
@@ -190,6 +191,9 @@ class LuminaApp extends StatelessWidget {
           ),
           BlocProvider<NavigationCubit>(
             create: (BuildContext context) => NavigationCubit(),
+          ),
+          BlocProvider<SparklineOpenLineCubit>(
+            create: (BuildContext context) => SparklineOpenLineCubit(),
           ),
           BlocProvider<HomeBloc>(
             create: (BuildContext context) => HomeBloc(

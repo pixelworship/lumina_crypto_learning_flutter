@@ -29,6 +29,7 @@ class TradeBloc extends Bloc<TradeEvent, TradeState> {
     on<TradeRangeChanged>(_onRangeChanged);
     on<TradeRefreshed>(_onRefreshed);
     on<TradePurchaseSubmitted>(_onPurchase);
+    on<TradeSaleSubmitted>(_onSale);
     on<_PricesUpdated>(_onPricesUpdated);
 
     _feedSub = _priceFeed.watchAll().listen(
@@ -102,7 +103,7 @@ class TradeBloc extends Bloc<TradeEvent, TradeState> {
     }
   }
 
-  /// Handles a `Purchase {symbol}` press from `_PurchaseCard`.
+  /// Handles a `Purchase {symbol}` press from the buy `_OrderCard`.
   ///
   /// Acceptance is delegated to [TradeRepository.purchase]; on a
   /// truthy result we record a [Fill] anchored at the purchased base
@@ -152,6 +153,65 @@ class TradeBloc extends Bloc<TradeEvent, TradeState> {
         state.copyWith(
           isSubmittingPurchase: false,
           lastPurchaseSucceeded: false,
+          errorMessage: error.toString(),
+        ),
+      );
+    }
+  }
+
+  /// Handles a `Sell {symbol}` press from `_OrderCard`.
+  ///
+  /// Mirrors [_onPurchase] but records the fill as [FillSide.sell].
+  /// The underlying repository call is the same direction-agnostic
+  /// `purchase(...)` — the mock API doesn't keep an actual inventory
+  /// so there's nothing to validate against (per the product spec:
+  /// "doesn't matter how much the user sells"). A truthy result still
+  /// gates whether we record a fill so the chart's marker overlay
+  /// stays in sync with the snackbar feedback.
+  Future<void> _onSale(
+    TradeSaleSubmitted event,
+    Emitter<TradeState> emit,
+  ) async {
+    emit(state.copyWith(
+      isSubmittingSale: true,
+      clearSaleResult: true,
+    ));
+    try {
+      final bool ok = await _tradeRepository.purchase(
+        fromSymbol: event.fromSymbol,
+        toSymbol: event.toSymbol,
+        amount: event.amount,
+      );
+      if (ok) {
+        // For a sell the base asset being given up is `fromSymbol`
+        // (e.g. BTC), so the fill marker anchors on that price.
+        // `currentPrice` returns 0 for unknown symbols; we still
+        // record the fill in that pathological case so the user
+        // sees their action but the marker lands at the chart's
+        // price floor instead of fabricating a synthetic price.
+        final double price = _priceFeed.currentPrice(event.fromSymbol);
+        await _fillRepository.recordFill(
+          Fill(
+            id: _idGenerator(),
+            symbol: event.fromSymbol.toUpperCase(),
+            side: FillSide.sell,
+            price: price,
+            sizeBase: event.amount,
+            costQuote: event.amount * price,
+            quoteSymbol: event.toSymbol.toUpperCase(),
+            timestamp: _clock.now(),
+          ),
+        );
+      }
+      emit(state.copyWith(
+        isSubmittingSale: false,
+        lastSaleSucceeded: ok,
+      ));
+    } catch (error) {
+      emit(
+        state.copyWith(
+          isSubmittingSale: false,
+          lastSaleSucceeded: false,
           errorMessage: error.toString(),
         ),
       );
